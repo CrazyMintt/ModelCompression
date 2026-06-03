@@ -451,7 +451,7 @@ def fig_latency_comparison(models: dict[str, dict], baseline: dict,
         ax.set_title(f"Batch size = {bs}", pad=10)
         ax.legend(fontsize=9, loc="lower right")
 
-    fig.suptitle("Comparação de latência — pruning e quantização",
+    fig.suptitle("Comparação de latência",
                  fontsize=13, y=1.02)
     fig.tight_layout()
     fig.savefig(out / "latency_comparison.png")
@@ -782,24 +782,134 @@ def fig_quality_vs_cost_pareto(models: dict[str, dict], baseline: dict,
     plt.close(fig)
     
 # ── tabela mestre ─────────────────────────────────────────────────────────────
+def _per_class_stats(t: dict) -> dict[str, Any]:
+    """
+    Extrai do per_class_report:
+      - f1_min         : pior F1 entre todas as classes
+      - f1_worst_class : nome da classe com pior F1
+      - f1_gap_macro   : diferença entre melhor e pior F1 de classe (spread)
+    Retorna defaults vazios se o relatório estiver ausente.
+    """
+    report = t.get("per_class_report", "")
+    parsed = parse_per_class_report(report)
+    if not parsed:
+        return {"f1_min": "", "f1_worst_class": "", "f1_gap_macro": ""}
+
+    worst_cls = min(parsed, key=lambda c: parsed[c]["f1"])
+    best_cls  = max(parsed, key=lambda c: parsed[c]["f1"])
+    return {
+        "f1_min":        round(parsed[worst_cls]["f1"], 4),
+        "f1_worst_class": worst_cls,
+        "f1_gap_macro":  round(parsed[best_cls]["f1"] - parsed[worst_cls]["f1"], 4),
+    }
+
+
 def write_summary_csv(models: dict[str, dict], baseline: dict, out: Path):
+    """
+    Colunas adicionadas/corrigidas em relação à versão anterior
+    ────────────────────────────────────────────────────────────
+    CORREÇÕES
+      compression_size_x   → agora usa file_size_mb (tamanho real em disco),
+                             não fp32_size_mb (que é idêntico para todos).
+      compression_params_x → razão de parâmetros não-zero vs baseline;
+                             substitui o antigo compression_macs_x que era
+                             sempre 1.0 em pruning não estruturado.
+
+    NOVAS COLUNAS
+      latency_b1_p95_ms    → percentil 95 de latência batch=1 (cauda).
+      latency_b1_std_ms    → desvio-padrão da latência batch=1 (estabilidade).
+      throughput_b1        → imagens/s com batch=1.
+      f1_macro_gap_pp      → gap de F1 macro vs baseline (pp), equivalente ao
+                             gap_top1_pp mas para F1 (relevante em datasets
+                             desbalanceados).
+      f1_min               → pior F1 entre todas as classes (detecta colapso
+                             em classes raras).
+      f1_worst_class       → nome da classe com pior F1.
+      f1_gap_macro         → spread entre melhor e pior F1 de classe (quanto
+                             o modelo é homogêneo entre classes).
+      param_efficiency     → top-1 / (nonzero_params / 1e6): acurácia por
+                             milhão de parâmetros ativos.
+      accuracy_cost_ratio  → gap_top1_pp / compression_size_x: custo de
+                             acurácia por unidade de compressão; menor = melhor.
+    """
     fields = [
+        # ── identificação ──────────────────────────────────────────────────
         "model", "category",
+        # ── parâmetros e esparsidade ───────────────────────────────────────
         "params_total", "nonzero_params", "sparsity_pct",
-        "macs_M", "fp32_MB", "file_MB",
-        "latency_b1_ms", "throughput_b32",
+        # ── custo computacional ────────────────────────────────────────────
+        "macs_M",
+        # ── tamanho em disco ───────────────────────────────────────────────
+        "fp32_MB", "fp16_MB", "int8_MB", "file_MB",
+        # ── latência (batch=1) ─────────────────────────────────────────────
+        "latency_b1_ms", "latency_b1_p95_ms", "latency_b1_std_ms",
+        # ── throughput ─────────────────────────────────────────────────────
+        "throughput_b1", "throughput_b32",
+        # ── qualidade global ───────────────────────────────────────────────
         "top1", "f1_macro",
-        "gap_top1_pp", "compression_size_x", "compression_macs_x",
-        "speedup_b1",
+        # ── gaps vs baseline ───────────────────────────────────────────────
+        "gap_top1_pp", "f1_macro_gap_pp",
+        # ── qualidade por classe ───────────────────────────────────────────
+        "f1_min", "f1_worst_class", "f1_gap_macro",
+        # ── compressão ─────────────────────────────────────────────────────
+        "compression_size_x", "compression_params_x", "speedup_b1",
+        # ── métricas derivadas ─────────────────────────────────────────────
+        "param_efficiency", "accuracy_cost_ratio",
     ]
+
     rows = []
     all_models = {baseline.get("arch", "baseline"): baseline, **models}
     b = baseline
+
+    b_top1       = b.get("top1", 0.0)
+    b_f1_macro   = b.get("f1_macro", 0.0)
+    b_file_mb    = b.get("file_size_mb", 1.0)
+    b_nz_params  = b.get("nonzero_params", b.get("params_total", 1))
+    b_lat_b1     = b.get("latencies", {}).get("1", {}).get("mean_ms", 1.0)
 
     for name, t in all_models.items():
         cat   = classify_model(name)
         total = t.get("params_total", 0)
         nz    = t.get("nonzero_params", total)
+
+        lat_b1_mean = t.get("latencies", {}).get("1", {}).get("mean_ms", 0.0)
+        lat_b1_p95  = t.get("latencies", {}).get("1", {}).get("p95_ms", 0.0)
+        lat_b1_std  = t.get("latencies", {}).get("1", {}).get("std_ms", 0.0)
+        thr_b1      = t.get("latencies", {}).get("1", {}).get("throughput_imgs", 0.0)
+        thr_b32     = t.get("latencies", {}).get("32", {}).get("throughput_imgs", 0.0)
+
+        t_top1     = t.get("top1", 0.0)
+        t_f1_macro = t.get("f1_macro", 0.0)
+        t_file_mb  = t.get("file_size_mb", 1.0)
+
+        gap_top1_pp    = round(100 * (b_top1 - t_top1), 3)
+        f1_macro_gap   = round(100 * (b_f1_macro - t_f1_macro), 3)
+
+        # compression_size_x: razão de tamanho real em disco
+        comp_size = round(b_file_mb / t_file_mb, 2) if t_file_mb else ""
+
+        # compression_params_x: razão de parâmetros não-zero
+        #   Em pruning não estruturado os MACs não mudam, mas os parâmetros
+        #   zerados são comprimidos via sparse storage → esta métrica reflete
+        #   a compressão efetiva. Para quantização, nz ≈ total, então ≈ 1×.
+        comp_params = round(b_nz_params / nz, 2) if nz else ""
+
+        speedup_b1 = round(b_lat_b1 / lat_b1_mean, 2) if lat_b1_mean else ""
+
+        # param_efficiency: top-1 por milhão de parâmetros ativos
+        param_eff = round(t_top1 / (nz / 1e6), 4) if nz else ""
+
+        # accuracy_cost_ratio: custo de acurácia por unidade de compressão
+        #   gap_top1_pp / compression_size_x → quanto de top-1 (pp) se perde
+        #   por cada fator de compressão obtido. Menor = mais eficiente.
+        #   Para o baseline este valor é 0 por definição.
+        if isinstance(comp_size, float) and comp_size > 1.0:
+            acc_cost = round(gap_top1_pp / comp_size, 4)
+        else:
+            acc_cost = 0.0
+
+        cls_stats = _per_class_stats(t)
+
         rows.append({
             "model":              name,
             "category":           cat,
@@ -808,18 +918,26 @@ def write_summary_csv(models: dict[str, dict], baseline: dict, out: Path):
             "sparsity_pct":       round(100 * (1 - nz / total) if total else 0, 2),
             "macs_M":             round(t.get("macs", 0) / 1e6, 2),
             "fp32_MB":            round(t.get("fp32_size_mb", 0), 3),
-            "file_MB":            round(t.get("file_size_mb", 0), 3),
-            "latency_b1_ms":      round(t.get("latencies", {}).get("1", {}).get("mean_ms", 0), 3),
-            "throughput_b32":     round(t.get("latencies", {}).get("32", {}).get("throughput_imgs", 0), 1),
-            "top1":               round(t.get("top1", 0), 4),
-            "f1_macro":           round(t.get("f1_macro", 0), 4),
-            "gap_top1_pp":        round(100 * (b.get("top1", 0) - t.get("top1", 0)), 3),
-            "compression_size_x": round(b.get("fp32_size_mb", 1) / t.get("fp32_size_mb", 1), 2),
-            "compression_macs_x": round(b.get("macs", 1) / t.get("macs", 1), 2),
-            "speedup_b1":         round(
-                b.get("latencies", {}).get("1", {}).get("mean_ms", 1) /
-                t.get("latencies", {}).get("1", {}).get("mean_ms", 1), 2
-            ),
+            "fp16_MB":            round(t.get("fp16_size_mb", 0), 3),
+            "int8_MB":            round(t.get("int8_size_mb", 0), 3),
+            "file_MB":            round(t_file_mb, 3),
+            "latency_b1_ms":      round(lat_b1_mean, 3),
+            "latency_b1_p95_ms":  round(lat_b1_p95, 3),
+            "latency_b1_std_ms":  round(lat_b1_std, 3),
+            "throughput_b1":      round(thr_b1, 1),
+            "throughput_b32":     round(thr_b32, 1),
+            "top1":               round(t_top1, 4),
+            "f1_macro":           round(t_f1_macro, 4),
+            "gap_top1_pp":        gap_top1_pp,
+            "f1_macro_gap_pp":    f1_macro_gap,
+            "f1_min":             cls_stats["f1_min"],
+            "f1_worst_class":     cls_stats["f1_worst_class"],
+            "f1_gap_macro":       cls_stats["f1_gap_macro"],
+            "compression_size_x": comp_size,
+            "compression_params_x": comp_params,
+            "speedup_b1":         speedup_b1,
+            "param_efficiency":   param_eff,
+            "accuracy_cost_ratio": acc_cost,
         })
 
     with open(out / "summary.csv", "w", newline="", encoding="utf-8") as f:
