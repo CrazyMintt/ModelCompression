@@ -1,0 +1,5 @@
+model,category,params_total,nonzero_params,sparsity_pct,macs_M,fp32_MB,file_MB,latency_b1_ms,throughput_b32,top1,f1_macro,gap_top1_pp,compression_size_x,compression_macs_x,speedup_b1
+resnet18,unknown,11174607,11174607,0.0,1813.57,42.628,64.753,12.117,79.5,0.9958,0.996,0.0,1.0,1.0,1.0
+ptq_dynamic_int8,quantization,11174607,11174528,0.0,1813.57,42.628,42.718,12.741,77.1,0.9955,0.9957,0.032,1.0,1.0,0.95
+ptq_static_int8,quantization,11179407,10970164,1.87,944.12,42.646,10.791,5.455,293.4,0.1101,0.0669,88.566,1.0,1.92,2.22
+qat_int8,quantization,11179407,10961142,1.95,944.12,42.646,10.792,4.827,312.2,0.751,0.7049,24.483,1.0,1.92,2.51

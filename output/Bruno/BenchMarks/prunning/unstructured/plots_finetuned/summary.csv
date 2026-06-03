@@ -1,0 +1,10 @@
+model,category,params_total,nonzero_params,sparsity_pct,macs_M,fp32_MB,file_MB,latency_b1_ms,throughput_b32,top1,f1_macro,gap_top1_pp,compression_size_x,compression_macs_x,speedup_b1
+resnet18,unknown,11174607,11174607,0.0,1813.57,42.628,64.753,1.76,1522.7,0.9958,0.996,0.0,1.0,1.0,1.0
+pruned_unstructured_60_finetuned,pruning,11174607,4469852,60.0,1813.57,42.628,19.743,1.844,1534.5,0.9961,0.9963,-0.032,1.0,1.0,0.95
+pruned_unstructured_65_finetuned,pruning,11174607,3911122,65.0,1813.57,42.628,17.491,1.943,1540.1,0.9919,0.9918,0.388,1.0,1.0,0.91
+pruned_unstructured_70_finetuned,pruning,11174607,3352392,70.0,1813.57,42.628,15.176,1.828,1493.0,0.9939,0.9937,0.194,1.0,1.0,0.96
+pruned_unstructured_75_finetuned,pruning,11174607,2793663,75.0,1813.57,42.628,12.821,1.801,1558.0,0.9929,0.9925,0.291,1.0,1.0,0.98
+pruned_unstructured_80_finetuned,pruning,11174607,2234934,80.0,1813.57,42.628,10.423,1.887,1521.4,0.9913,0.991,0.452,1.0,1.0,0.93
+pruned_unstructured_85_finetuned,pruning,11174607,1676204,85.0,1813.57,42.628,7.979,1.869,1525.8,0.9913,0.991,0.452,1.0,1.0,0.94
+pruned_unstructured_90_finetuned,pruning,11174607,1117474,90.0,1813.57,42.628,5.465,1.828,1522.6,0.9761,0.9747,1.97,1.0,1.0,0.96
+pruned_unstructured_95_finetuned,pruning,11174607,558744,95.0,1813.57,42.628,2.866,1.856,1534.2,0.9134,0.9083,8.236,1.0,1.0,0.95

@@ -1,0 +1,59 @@
+# ── Python ─────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Virtual environments ───────────────────────────────────────────────────────
+.venv/
+.venv-gpu/
+venv/
+env/
+ENV/
+
+# ── Jupyter ────────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ── Datasets (re-downloaded, never committed) ──────────────────────────────────
+PlantVillage/
+data/
+datasets/
+
+# ── Model checkpoints (large binaries — use Git LFS or Releases instead) ───────
+# *.pth
+*.pt
+*.ckpt
+*.safetensors
+*.onnx
+
+# ── Training artifacts you may want to keep small versions of ──────────────────
+# (curves and reports are kept; only the heavy weights are ignored above)
+
+# ── IDE / editor ───────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS ─────────────────────────────────────────────────────────────────────────
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# ── Claude Code workspace files ────────────────────────────────────────────────
+.claude/
+
+# ── Logs ───────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── NixOS ──────────────────────────────────────────────────────────────────────
+shell.nix

@@ -1,0 +1,72 @@
+{
+  "target": {
+    "arch": "shufflenet_v2_x1_0",
+    "weights": "output\\students\\student_shufflenet_v2_x1_0.pth",
+    "params_total": 1268979,
+    "params_trainable": 0,
+    "buffers": 16236,
+    "macs": 143899352,
+    "flops": 287798704,
+    "file_size_mb": 7.474895477294922,
+    "fp32_size_mb": 4.840770721435547,
+    "fp16_size_mb": 2.4203853607177734,
+    "int8_size_mb": 1.2101926803588867,
+    "latencies": {
+      "1": {
+        "mean_ms": 4.188231999287382,
+        "std_ms": 1.558945651174626,
+        "p50_ms": 3.5886999976355582,
+        "p95_ms": 7.643764992826613,
+        "p99_ms": 9.876951991755046,
+        "throughput_imgs": 238.7642327765386
+      },
+      "32": {
+        "mean_ms": 6.842836000141688,
+        "std_ms": 0.23778105671306685,
+        "p50_ms": 6.781000003684312,
+        "p95_ms": 7.25873999617761,
+        "p99_ms": 7.631541003938764,
+        "throughput_imgs": 4676.4236347820415
+      }
+    },
+    "top1": 0.9906330749354005,
+    "f1_macro": 0.9912976318796416,
+    "f1_weighted": 0.9906460995968362,
+    "per_class_report": "                                             precision    recall  f1-score   support\n\n              Pepper__bell___Bacterial_spot     1.0000    1.0000    1.0000       149\n                     Pepper__bell___healthy     0.9955    0.9955    0.9955       222\n                      Potato___Early_blight     1.0000    1.0000    1.0000       150\n                       Potato___Late_blight     1.0000    0.9933    0.9967       150\n                           Potato___healthy     1.0000    1.0000    1.0000        23\n                      Tomato_Bacterial_spot     0.9938    0.9969    0.9953       319\n                        Tomato_Early_blight     0.9545    0.9800    0.9671       150\n                         Tomato_Late_blight     1.0000    0.9650    0.9822       286\n                           Tomato_Leaf_Mold     0.9929    0.9790    0.9859       143\n                  Tomato_Septoria_leaf_spot     1.0000    0.9925    0.9962       266\nTomato_Spider_mites_Two_spotted_spider_mite     0.9725    0.9880    0.9802       251\n                        Tomato__Target_Spot     0.9767    0.9953    0.9859       211\n      Tomato__Tomato_YellowLeaf__Curl_Virus     0.9958    0.9938    0.9948       481\n                Tomato__Tomato_mosaic_virus     1.0000    1.0000    1.0000        56\n                             Tomato_healthy     0.9835    0.9958    0.9896       239\n\n                                   accuracy                         0.9906      3096\n                                  macro avg     0.9910    0.9917    0.9913      3096\n                               weighted avg     0.9908    0.9906    0.9906      3096\n"
+  },
+  "baseline": {
+    "arch": "resnet18",
+    "weights": "output\\best_model.pth",
+    "params_total": 11184207,
+    "params_trainable": 0,
+    "buffers": 9620,
+    "macs": 1813569024,
+    "flops": 3627138048,
+    "file_size_mb": 64.75315475463867,
+    "fp32_size_mb": 42.664363861083984,
+    "fp16_size_mb": 21.332181930541992,
+    "int8_size_mb": 10.666090965270996,
+    "latencies": {
+      "1": {
+        "mean_ms": 1.4276220003375784,
+        "std_ms": 0.12706054570751352,
+        "p50_ms": 1.405000002705492,
+        "p95_ms": 1.6669300006469712,
+        "p99_ms": 1.6827069924329408,
+        "throughput_imgs": 700.4655292251997
+      },
+      "32": {
+        "mean_ms": 12.18512600113172,
+        "std_ms": 0.26916039912930984,
+        "p50_ms": 12.134649994550273,
+        "p95_ms": 12.63019499310758,
+        "p99_ms": 13.013449990539812,
+        "throughput_imgs": 2626.1525729834825
+      }
+    },
+    "top1": 0.9958010335917312,
+    "f1_macro": 0.9959944388056144,
+    "f1_weighted": 0.9958006511148225,
+    "per_class_report": "                                             precision    recall  f1-score   support\n\n              Pepper__bell___Bacterial_spot     1.0000    1.0000    1.0000       149\n                     Pepper__bell___healthy     0.9955    1.0000    0.9978       222\n                      Potato___Early_blight     1.0000    1.0000    1.0000       150\n                       Potato___Late_blight     1.0000    0.9933    0.9967       150\n                           Potato___healthy     1.0000    1.0000    1.0000        23\n                      Tomato_Bacterial_spot     0.9969    1.0000    0.9984       319\n                        Tomato_Early_blight     0.9800    0.9800    0.9800       150\n                         Tomato_Late_blight     0.9930    0.9860    0.9895       286\n                           Tomato_Leaf_Mold     1.0000    1.0000    1.0000       143\n                  Tomato_Septoria_leaf_spot     1.0000    0.9925    0.9962       266\nTomato_Spider_mites_Two_spotted_spider_mite     0.9921    1.0000    0.9960       251\n                        Tomato__Target_Spot     0.9859    0.9953    0.9906       211\n      Tomato__Tomato_YellowLeaf__Curl_Virus     1.0000    0.9979    0.9990       481\n                Tomato__Tomato_mosaic_virus     1.0000    1.0000    1.0000        56\n                             Tomato_healthy     0.9958    0.9958    0.9958       239\n\n                                   accuracy                         0.9958      3096\n                                  macro avg     0.9959    0.9961    0.9960      3096\n                               weighted avg     0.9958    0.9958    0.9958      3096\n"
+  }
+}

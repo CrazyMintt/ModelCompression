@@ -1,0 +1,6 @@
+model,category,params_total,nonzero_params,sparsity_pct,macs_M,fp32_MB,file_MB,latency_b1_ms,throughput_b32,top1,f1_macro,gap_top1_pp,compression_size_x,compression_macs_x,speedup_b1
+resnet18,unknown,11174607,11174607,0.0,1813.57,42.628,64.753,1.834,1521.7,0.9958,0.996,0.0,1.0,1.0,1.0
+pruned_iterative_60,pruning,11174607,715188,93.6,1813.57,42.628,3.583,1.844,1529.1,0.969,0.9658,2.681,1.0,1.0,1.0
+pruned_structured_40,pruning,11174607,9085287,18.7,1813.57,42.628,33.823,1.822,1525.9,0.9903,0.989,0.549,1.0,1.0,1.01
+pruned_unstructured_40,pruning,11174607,6704770,40.0,1813.57,42.628,28.352,1.916,1531.4,0.9913,0.9919,0.452,1.0,1.0,0.96
+pruned_unstructured_85_finetuned,pruning,11174607,1676204,85.0,1813.57,42.628,7.979,1.869,1525.8,0.9913,0.991,0.452,1.0,1.0,0.98
