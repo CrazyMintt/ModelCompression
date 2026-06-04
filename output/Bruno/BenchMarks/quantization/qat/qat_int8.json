@@ -1,68 +1,68 @@
 {
   "target": {
-    "arch": "qat_int8",
-    "weights": "/home/bruno/Downloads/ModelCompressionResearch/output/Bruno/Modelos/quantization/qat/qat_int8.pth",
-    "params_total": 11179407,
+    "arch": "resnet18",
+    "weights": "/home/bruno/Downloads/ModelCompressionResearchCopia/output/Bruno/Modelos/quantization/qat/qat_int8.pth.gz",
+    "params_total": 11174607,
     "params_trainable": 0,
-    "buffers": 2,
+    "buffers": 18,
     "macs": 944119296,
     "flops": 1888238592,
-    "file_size_mb": 10.79210376739502,
+    "file_size_mb": 8.944040298461914,
     "fp32_size_mb": 42.646053314208984,
     "fp16_size_mb": 21.323026657104492,
     "int8_size_mb": 10.661513328552246,
     "latencies": {
       "1": {
-        "mean_ms": 4.826980120051303,
-        "std_ms": 0.2585122008791592,
-        "p50_ms": 4.838041500534018,
-        "p95_ms": 5.163877999893884,
-        "p99_ms": 5.267446089792429,
-        "throughput_imgs": 207.16886648154906
+        "mean_ms": 9.214278180443216,
+        "std_ms": 3.1228779493818264,
+        "p50_ms": 8.180001001164783,
+        "p95_ms": 16.27977204334455,
+        "p99_ms": 19.905409492930627,
+        "throughput_imgs": 108.52722051765741
       },
       "32": {
-        "mean_ms": 102.48963792002542,
-        "std_ms": 5.90144401556831,
-        "p50_ms": 101.1940569997023,
-        "p95_ms": 111.81271629998263,
-        "p99_ms": 126.75204728005156,
-        "throughput_imgs": 312.2266860282032
+        "mean_ms": 199.3344441615045,
+        "std_ms": 31.79463766443068,
+        "p50_ms": 194.31976400665008,
+        "p95_ms": 252.12662860794802,
+        "p99_ms": 309.77361491866753,
+        "throughput_imgs": 160.53422244513345
       }
     },
-    "top1": 0.750968992248062,
-    "f1_macro": 0.7048678963365342,
-    "f1_weighted": 0.7455208871964707,
-    "per_class_report": "                                             precision    recall  f1-score   support\n\n              Pepper__bell___Bacterial_spot     0.8722    0.7785    0.8227       149\n                     Pepper__bell___healthy     0.8958    0.9685    0.9307       222\n                      Potato___Early_blight     0.8323    0.8933    0.8617       150\n                       Potato___Late_blight     0.7660    0.4800    0.5902       150\n                           Potato___healthy     0.2069    0.7826    0.3273        23\n                      Tomato_Bacterial_spot     0.8777    0.8777    0.8777       319\n                        Tomato_Early_blight     0.8730    0.3667    0.5164       150\n                         Tomato_Late_blight     0.8478    0.4091    0.5519       286\n                           Tomato_Leaf_Mold     0.6927    0.8671    0.7702       143\n                  Tomato_Septoria_leaf_spot     0.7344    0.7068    0.7203       266\nTomato_Spider_mites_Two_spotted_spider_mite     0.5855    0.6414    0.6122       251\n                        Tomato__Target_Spot     0.6029    0.5972    0.6000       211\n      Tomato__Tomato_YellowLeaf__Curl_Virus     0.8998    0.9148    0.9072       481\n                Tomato__Tomato_mosaic_virus     0.7241    0.7500    0.7368        56\n                             Tomato_healthy     0.6000    0.9916    0.7476       239\n\n                                   accuracy                         0.7510      3096\n                                  macro avg     0.7341    0.7350    0.7049      3096\n                               weighted avg     0.7791    0.7510    0.7455      3096\n",
-    "nonzero_params": 10961142
+    "top1": 0.9961240310077519,
+    "f1_macro": 0.9963527282001158,
+    "f1_weighted": 0.9961244104437305,
+    "per_class_report": "                                             precision    recall  f1-score   support\n\n              Pepper__bell___Bacterial_spot     1.0000    1.0000    1.0000       149\n                     Pepper__bell___healthy     0.9955    1.0000    0.9978       222\n                      Potato___Early_blight     1.0000    1.0000    1.0000       150\n                       Potato___Late_blight     1.0000    1.0000    1.0000       150\n                           Potato___healthy     1.0000    1.0000    1.0000        23\n                      Tomato_Bacterial_spot     0.9969    1.0000    0.9984       319\n                        Tomato_Early_blight     0.9932    0.9733    0.9832       150\n                         Tomato_Late_blight     0.9930    0.9930    0.9930       286\n                           Tomato_Leaf_Mold     1.0000    1.0000    1.0000       143\n                  Tomato_Septoria_leaf_spot     1.0000    0.9962    0.9981       266\nTomato_Spider_mites_Two_spotted_spider_mite     1.0000    0.9841    0.9920       251\n                        Tomato__Target_Spot     0.9724    1.0000    0.9860       211\n      Tomato__Tomato_YellowLeaf__Curl_Virus     0.9979    1.0000    0.9990       481\n                Tomato__Tomato_mosaic_virus     1.0000    1.0000    1.0000        56\n                             Tomato_healthy     1.0000    0.9958    0.9979       239\n\n                                   accuracy                         0.9961      3096\n                                  macro avg     0.9966    0.9962    0.9964      3096\n                               weighted avg     0.9962    0.9961    0.9961      3096\n",
+    "nonzero_params": 10903947
   },
   "baseline": {
     "arch": "resnet18",
-    "weights": "/home/bruno/Downloads/ModelCompressionResearch/output/best_model.pth",
+    "weights": "/home/bruno/Downloads/ModelCompressionResearchCopia/baseline.pth.gz",
     "params_total": 11174607,
     "params_trainable": 0,
     "buffers": 9620,
     "macs": 1813569024,
     "flops": 3627138048,
-    "file_size_mb": 64.75315475463867,
+    "file_size_mb": 42.116960525512695,
     "fp32_size_mb": 42.627742767333984,
     "fp16_size_mb": 21.313871383666992,
     "int8_size_mb": 10.656935691833496,
     "latencies": {
       "1": {
-        "mean_ms": 13.068105160073173,
-        "std_ms": 0.6562286654356938,
-        "p50_ms": 13.000251499761362,
-        "p95_ms": 14.030117500487904,
-        "p99_ms": 15.026916670203716,
-        "throughput_imgs": 76.522188010492
+        "mean_ms": 23.286636420234572,
+        "std_ms": 5.070264479928061,
+        "p50_ms": 21.316942002158612,
+        "p95_ms": 32.22733499787864,
+        "p99_ms": 39.57442951257688,
+        "throughput_imgs": 42.94308469260357
       },
       "32": {
-        "mean_ms": 393.75621036000666,
-        "std_ms": 21.791012517943503,
-        "p50_ms": 390.75073749972944,
-        "p95_ms": 428.0098441495738,
-        "p99_ms": 467.30703845991223,
-        "throughput_imgs": 81.26855947425636
+        "mean_ms": 727.3663566994946,
+        "std_ms": 49.22787319098799,
+        "p50_ms": 725.302955499501,
+        "p95_ms": 817.4333044917148,
+        "p99_ms": 864.2926242672546,
+        "throughput_imgs": 43.99433614884739
       }
     },
     "top1": 0.9958010335917312,
