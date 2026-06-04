@@ -1,32 +1,32 @@
 {
   "target": {
-    "arch": "pruned_unstructured_50",
-    "weights": "/home/bruno/Downloads/ModelCompressionResearch/output/Bruno/Modelos/prunning/unstructured/pruned_unstructured_50.pth.gz",
+    "arch": "resnet18",
+    "weights": "/home/bruno/Downloads/ModelCompressionResearchCopia/output/Bruno/Modelos/prunning/unstructured/pruned_unstructured_50.pth.gz",
     "params_total": 11174607,
     "params_trainable": 0,
     "buffers": 9620,
     "macs": 1813569024,
     "flops": 3627138048,
-    "file_size_mb": 24.195378303527832,
+    "file_size_mb": 24.195255279541016,
     "fp32_size_mb": 42.627742767333984,
     "fp16_size_mb": 21.313871383666992,
     "int8_size_mb": 10.656935691833496,
     "latencies": {
       "1": {
-        "mean_ms": 1.8159196601845906,
-        "std_ms": 0.17148789434830694,
-        "p50_ms": 1.7413650002708891,
-        "p95_ms": 2.1886995001295872,
-        "p99_ms": 2.2446882109943544,
-        "throughput_imgs": 550.6851552553535
+        "mean_ms": 16.799566299305297,
+        "std_ms": 0.43576496828527594,
+        "p50_ms": 16.75574799446622,
+        "p95_ms": 17.772410945326556,
+        "p99_ms": 17.939494298334466,
+        "throughput_imgs": 59.52534620142857
       },
       "32": {
-        "mean_ms": 21.319603299853043,
-        "std_ms": 0.8965914025448514,
-        "p50_ms": 20.962418000635807,
-        "p95_ms": 23.16394049958035,
-        "p99_ms": 23.451623109922366,
-        "throughput_imgs": 1500.9660147016234
+        "mean_ms": 457.7222884586081,
+        "std_ms": 27.882614063647676,
+        "p50_ms": 449.8482229973888,
+        "p95_ms": 501.3476165011525,
+        "p99_ms": 508.22363352490356,
+        "throughput_imgs": 69.91138689741513
       }
     },
     "top1": 0.9802971576227391,
@@ -37,32 +37,32 @@
   },
   "baseline": {
     "arch": "resnet18",
-    "weights": "/home/bruno/Downloads/ModelCompressionResearch/output/best_model.pth",
+    "weights": "/home/bruno/Downloads/ModelCompressionResearchCopia/baseline.pth.gz",
     "params_total": 11174607,
     "params_trainable": 0,
     "buffers": 9620,
     "macs": 1813569024,
     "flops": 3627138048,
-    "file_size_mb": 64.75315475463867,
+    "file_size_mb": 42.116960525512695,
     "fp32_size_mb": 42.627742767333984,
     "fp16_size_mb": 21.313871383666992,
     "int8_size_mb": 10.656935691833496,
     "latencies": {
       "1": {
-        "mean_ms": 1.8792466400918784,
-        "std_ms": 0.1743703805038787,
-        "p50_ms": 1.8215099998997175,
-        "p95_ms": 2.167146000738285,
-        "p99_ms": 2.2454704890515127,
-        "throughput_imgs": 532.1281297866835
+        "mean_ms": 17.48843236011453,
+        "std_ms": 2.3882627868007242,
+        "p50_ms": 18.400159002339933,
+        "p95_ms": 19.87643899919931,
+        "p99_ms": 20.1070194967906,
+        "throughput_imgs": 57.180654012230235
       },
       "32": {
-        "mean_ms": 20.847506660102226,
-        "std_ms": 0.4223856796084149,
-        "p50_ms": 20.69478600151342,
-        "p95_ms": 21.589004500037845,
-        "p99_ms": 21.62740129051599,
-        "throughput_imgs": 1534.9557393950288
+        "mean_ms": 466.0042864611023,
+        "std_ms": 27.796596386373157,
+        "p50_ms": 464.59538350609364,
+        "p95_ms": 513.8648550469952,
+        "p99_ms": 522.468796332978,
+        "throughput_imgs": 68.66889625203278
       }
     },
     "top1": 0.9958010335917312,

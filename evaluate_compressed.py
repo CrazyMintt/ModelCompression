@@ -215,21 +215,12 @@ def load_sparse(model, path, is_quantized=False):
         return model
         
 def load_static_ptq_fx(dense_state, num_classes=15):
-    """
-    Carrega PTQ estática FX reconstruindo os módulos manualmente.
-    
-    O state dict salvo tem formato misto:
-      - Conv2d: chaves flat (conv1.weight quantized + conv1.scale + conv1.zero_point)
-      - Linear: chaves packed  (fc.1._packed_params._packed_params)
-    
-    load_state_dict falha porque o convert_fx reconstruído gera chaves diferentes.
-    Solução: popular cada módulo diretamente via suas APIs internas.
-    """
     from torch.ao.quantization.quantize_fx import prepare_fx, convert_fx
     from torch.ao.quantization import QConfigMapping
     import torch.ao.nn.quantized as nnq
+    import torch.ao.nn.intrinsic.quantized as nniq
 
-    # 1. Reconstrói a arquitetura FX convertida (estrutura correta de módulos)
+    # 1. Reconstrói arquitetura
     model = build_model(num_classes).eval()
     qconfig_mapping = QConfigMapping().set_global(
         torch.ao.quantization.get_default_qconfig('fbgemm')
@@ -238,64 +229,61 @@ def load_static_ptq_fx(dense_state, num_classes=15):
     model_prepared = prepare_fx(model, qconfig_mapping, example_input)
     model_converted = convert_fx(model_prepared)
 
-    # 2. Separa as chaves do state dict salvo por categoria
-    # Chaves de activation: conv1_input_scale_0, layer1_0_relu_scale_0, etc.
-    # Chaves de módulo:     conv1.weight, conv1.scale, fc.1._packed_params...
-    activation_keys = {k: v for k, v in dense_state.items()
-                       if '_scale_' in k or '_zero_point_' in k}
-    module_keys     = {k: v for k, v in dense_state.items()
-                       if k not in activation_keys}
+    # 2. Separação por estrutura da chave
+    module_keys     = {k: v for k, v in dense_state.items() if '.' in k}
+    activation_keys = {k: v for k, v in dense_state.items() if '.' not in k}
 
-    # 3. Carrega activation scales/zero_points diretamente no state dict do modelo
-    #    (essas chaves batem entre o modelo salvo e o reconstruído)
+    # 3. Restaura activation scales via load_state_dict  ← PRIMEIRO
     converted_state = model_converted.state_dict()
+    matched, missed = 0, 0
     for k, v in activation_keys.items():
         if k in converted_state:
             converted_state[k] = v
+            matched += 1
+        else:
+            missed += 1
+    print(f"  Activation scales: {matched} matched, {missed} missed")
+    model_converted.load_state_dict(converted_state, strict=False)
 
-    # 4. Para cada módulo quantizado no modelo reconstruído, popula manualmente
-    #    usando os tensores do state dict salvo
+    # 4. Restaura pesos/scales dos módulos quantizados  ← DEPOIS
+    #    (feito por último para não ser sobrescrito pelo load_state_dict)
     for mod_name, mod in model_converted.named_modules():
 
-        # ── Conv2d quantizado (formato flat: .weight/.scale/.zero_point) ──
-        if isinstance(mod, nnq.Conv2d):
+        if isinstance(mod, (nnq.Conv2d, nniq.ConvReLU2d)):
             w_key  = f"{mod_name}.weight"
             sc_key = f"{mod_name}.scale"
             zp_key = f"{mod_name}.zero_point"
             b_key  = f"{mod_name}.bias"
 
             if w_key in module_keys:
-                w  = module_keys[w_key]           # já é quantized tensor
-                sc = float(module_keys[sc_key])
-                zp = int(module_keys[zp_key])
-                b  = module_keys.get(b_key, None)
-                # set_weight_bias espera tensor quantizado + bias float
-                mod.set_weight_bias(w, b)
-                mod.scale      = sc
-                mod.zero_point = zp
-                print(f"    [Conv2d] loaded: {mod_name}")
+                mod.set_weight_bias(module_keys[w_key], module_keys.get(b_key))
+                mod.scale      = float(module_keys[sc_key])
+                mod.zero_point = int(module_keys[zp_key])
+                print(f"    [{type(mod).__name__}] loaded: {mod_name}")
 
-        # ── Linear quantizado (formato packed: _packed_params._packed_params) ──
-        elif isinstance(mod, nnq.Linear):
-            pp_key  = f"{mod_name}._packed_params._packed_params"
-            sc_key  = f"{mod_name}.scale"
-            zp_key  = f"{mod_name}.zero_point"
+        elif isinstance(mod, (nnq.Linear, nniq.LinearReLU)):
+            pp_key = f"{mod_name}._packed_params._packed_params"
+            sc_key = f"{mod_name}.scale"
+            zp_key = f"{mod_name}.zero_point"
 
             if pp_key in module_keys:
-                packed = module_keys[pp_key]      # tuple (weight_tensor, bias_tensor)
-                w_q, b_f = packed                 # weight quantizado, bias float
+                w_q, b_f = module_keys[pp_key]
                 mod.set_weight_bias(w_q, b_f)
                 if sc_key in module_keys:
                     mod.scale      = float(module_keys[sc_key])
                     mod.zero_point = int(module_keys[zp_key])
-                print(f"    [Linear] loaded: {mod_name}")
+                print(f"    [{type(mod).__name__}] loaded: {mod_name}")
 
-    # 5. Carrega o state dict atualizado (activation scales já corrigidas)
-    #    strict=False porque chaves de módulos Conv/Linear são populadas acima
-    model_converted.load_state_dict(converted_state, strict=False)
+    # 5. Verificação rápida — scales não devem ser todas 1.0
+    scales = [mod.scale for _, mod in model_converted.named_modules()
+              if hasattr(mod, 'scale') and isinstance(mod.scale, float)]
+    unique = set(round(s, 6) for s in scales)
+    print(f"  Output scales únicas (sample): {sorted(unique)[:5]}")
+    if unique == {1.0}:
+        print("  ⚠️  AVISO: todas as scales ainda são 1.0 — restauração falhou!")
 
     return model_converted.eval()
-
+    
 def load_any_model(path, is_quantized=False, num_classes=15, device='cpu'):
     model = build_model(num_classes)
 
