@@ -297,345 +297,685 @@ print('Salvo: baseline.pth.gz')
 # 6. PRUNING
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── 6A. Unstructured Pruning ──────────────────────────────────────────────────
-def apply_unstructured_pruning(model, amount=0.4):
-    model = copy.deepcopy(model)
-    for name, module in model.named_modules():
-        if isinstance(module, (nn.Conv2d, nn.Linear)):
-            prune.l1_unstructured(module, name='weight', amount=amount)
-    return model
+# # ── 6A. Unstructured Pruning ──────────────────────────────────────────────────
+# def apply_unstructured_pruning(model, amount=0.4):
+#     model = copy.deepcopy(model)
+#     for name, module in model.named_modules():
+#         if isinstance(module, (nn.Conv2d, nn.Linear)):
+#             prune.l1_unstructured(module, name='weight', amount=amount)
+#     return model
 
 
-def remove_pruning_masks(model):
-    for name, module in model.named_modules():
-        if isinstance(module, (nn.Conv2d, nn.Linear)):
-            try:
-                prune.remove(module, 'weight')
-            except ValueError:
-                pass
-    return model
+# def remove_pruning_masks(model):
+#     for name, module in model.named_modules():
+#         if isinstance(module, (nn.Conv2d, nn.Linear)):
+#             try:
+#                 prune.remove(module, 'weight')
+#             except ValueError:
+#                 pass
+#     return model
 
 
-UNSTRUCTURED_AMOUNTS = [0.85, 0.9, 0.95]
+# UNSTRUCTURED_AMOUNTS = [0.85, 0.9, 0.95]
 
-for amount in UNSTRUCTURED_AMOUNTS:
-    pruned = apply_unstructured_pruning(baseline_model, amount=amount)
-    pruned = remove_pruning_masks(pruned)
-    _, acc, _, _ = evaluate(pruned, test_loader)
-    size_mb  = model_size_mb(pruned)
-    latency  = measure_latency(pruned)
-    tot, nz  = count_nonzero_params(pruned)
-    label = f'Unstructured Pruning {int(amount*100)}%'
-    print_metrics(label, acc, size_mb, latency, tot, nz)
-    save_result(label, acc, size_mb, latency, tot, nz)
-    fname = f'pruned_unstructured_{int(amount*100)}.pth.gz'
-    save_sparse(pruned, fname)
-    print(f'  Salvo: {fname}')
-
-
-# ── 6B. Structured Pruning ────────────────────────────────────────────────────
-def rebuild_structured_model(model):
-    for name, module in model.named_modules():
-        if hasattr(module, 'weight_orig'):
-            prune.remove(module, 'weight')
-    return model
+# for amount in UNSTRUCTURED_AMOUNTS:
+#     pruned = apply_unstructured_pruning(baseline_model, amount=amount)
+#     pruned = remove_pruning_masks(pruned)
+#     _, acc, _, _ = evaluate(pruned, test_loader)
+#     size_mb  = model_size_mb(pruned)
+#     latency  = measure_latency(pruned)
+#     tot, nz  = count_nonzero_params(pruned)
+#     label = f'Unstructured Pruning {int(amount*100)}%'
+#     print_metrics(label, acc, size_mb, latency, tot, nz)
+#     save_result(label, acc, size_mb, latency, tot, nz)
+#     fname = f'pruned_unstructured_{int(amount*100)}.pth.gz'
+#     save_sparse(pruned, fname)
+#     print(f'  Salvo: {fname}')
 
 
-def finetune(model, train_loader, val_loader, epochs, lr, device=DEVICE):
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
-    model.train()
-    for epoch in range(epochs):
-        for imgs, lbls in train_loader:
-            imgs, lbls = imgs.to(device), lbls.to(device)
-            optimizer.zero_grad()
-            criterion(model(imgs), lbls).backward()
-            optimizer.step()
-    return model
+# # ── 6B. Structured Pruning ────────────────────────────────────────────────────
+# def rebuild_structured_model(model):
+#     for name, module in model.named_modules():
+#         if hasattr(module, 'weight_orig'):
+#             prune.remove(module, 'weight')
+#     return model
 
 
-def apply_structured_pruning(model, amount=0.3):
-    model = copy.deepcopy(model)
-    safe_names = []
-    for name, module in model.named_modules():
-        if name == 'conv1' and isinstance(module, nn.Conv2d):
-            safe_names.append(name)
-        elif name.endswith('.conv1') and 'layer' in name and isinstance(module, nn.Conv2d):
-            safe_names.append(name)
-    return model, safe_names
+# def finetune(model, train_loader, val_loader, epochs, lr, device=DEVICE):
+#     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+#     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+#     model.train()
+#     for epoch in range(epochs):
+#         for imgs, lbls in train_loader:
+#             imgs, lbls = imgs.to(device), lbls.to(device)
+#             optimizer.zero_grad()
+#             criterion(model(imgs), lbls).backward()
+#             optimizer.step()
+#     return model
 
 
-def structured_pruning_with_finetune(baseline_model, amount, train_loader,
-                                     val_loader, rounds=3, ft_epochs=2,
-                                     lr=5e-5, device=DEVICE):
-    model, safe_names = apply_structured_pruning(baseline_model, amount=0)
-    model = model.to(device)
-    per_round = 1 - (1 - amount) ** (1 / rounds)
-
-    for r in range(rounds):
-        print(f"\n  Round {r+1}/{rounds} — podando {per_round*100:.1f}% das camadas seguras")
-        for name, module in model.named_modules():
-            if name not in safe_names:
-                continue
-            n_filters = module.out_channels
-            n_prune   = max(1, int(n_filters * per_round))
-            n_prune   = min(n_prune, n_filters - 1)
-            prune.ln_structured(module, name='weight', amount=n_prune, n=1, dim=0)
-
-        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
-        criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
-        model.train()
-        for epoch in range(ft_epochs):
-            for imgs, lbls in train_loader:
-                imgs, lbls = imgs.to(device), lbls.to(device)
-                optimizer.zero_grad()
-                criterion(model(imgs), lbls).backward()
-                optimizer.step()
-
-        _, val_acc, _, _ = evaluate(model, val_loader, device)
-        tot, nz = count_nonzero_params(model)
-        print(f"  val_acc={val_acc*100:.2f}%  |  params ativos: {nz:,}")
-
-    model = rebuild_structured_model(model)
-    print(f"\n  Fine-tuning final (5 épocas) ...")
-    model = finetune(model, train_loader, val_loader, epochs=5, lr=lr, device=device)
-    return model
+# def apply_structured_pruning(model, amount=0.3):
+#     model = copy.deepcopy(model)
+#     safe_names = []
+#     for name, module in model.named_modules():
+#         if name == 'conv1' and isinstance(module, nn.Conv2d):
+#             safe_names.append(name)
+#         elif name.endswith('.conv1') and 'layer' in name and isinstance(module, nn.Conv2d):
+#             safe_names.append(name)
+#     return model, safe_names
 
 
-STRUCTURED_AMOUNTS = [0.65, 0.70, 0.75, 0.80, 0.85, 0.90]
+# def structured_pruning_with_finetune(baseline_model, amount, train_loader,
+#                                      val_loader, rounds=3, ft_epochs=2,
+#                                      lr=5e-5, device=DEVICE):
+#     model, safe_names = apply_structured_pruning(baseline_model, amount=0)
+#     model = model.to(device)
+#     per_round = 1 - (1 - amount) ** (1 / rounds)
 
-for amount in STRUCTURED_AMOUNTS:
-    print(f"\n{'='*60}")
-    print(f"  Structured Pruning {int(amount*100)}% (gradual + finetune intercalado)")
-    print(f"{'='*60}")
-    pruned = structured_pruning_with_finetune(
-        baseline_model, amount, train_loader, val_loader,
-        rounds=3, ft_epochs=2, lr=5e-5
-    )
-    _, acc, _, _ = evaluate(pruned, test_loader)
-    size_mb  = model_size_mb(pruned)
-    latency  = measure_latency(pruned)
-    tot, nz  = count_nonzero_params(pruned)
-    label = f'Structured Pruning {int(amount*100)}%'
-    print_metrics(label, acc, size_mb, latency, tot, nz)
-    save_result(label, acc, size_mb, latency, tot, nz)
-    fname = f'pruned_structured_{int(amount*100)}.pth.gz'
-    save_sparse(pruned, fname)
-    print(f'  Salvo: {fname}')
+#     for r in range(rounds):
+#         print(f"\n  Round {r+1}/{rounds} — podando {per_round*100:.1f}% das camadas seguras")
+#         for name, module in model.named_modules():
+#             if name not in safe_names:
+#                 continue
+#             n_filters = module.out_channels
+#             n_prune   = max(1, int(n_filters * per_round))
+#             n_prune   = min(n_prune, n_filters - 1)
+#             prune.ln_structured(module, name='weight', amount=n_prune, n=1, dim=0)
 
+#         optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+#         criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+#         model.train()
+#         for epoch in range(ft_epochs):
+#             for imgs, lbls in train_loader:
+#                 imgs, lbls = imgs.to(device), lbls.to(device)
+#                 optimizer.zero_grad()
+#                 criterion(model(imgs), lbls).backward()
+#                 optimizer.step()
 
-# ── 6D. Iterative Pruning ─────────────────────────────────────────────────────
-def iterative_pruning(model, target_amount=0.90, rounds=5, finetune_epochs=3,
-                      lr=1e-4, device=DEVICE):
-    model = copy.deepcopy(model).to(device)
-    amounts = [1 - (1 - target_amount) ** ((r + 1) / rounds) for r in range(rounds)]
-    for r, amount in enumerate(amounts):
-        print(f"\n--- Round {r+1}/{rounds} | Sparsidade alvo: {amount*100:.1f}% ---")
-        for name, module in model.named_modules():
-            if isinstance(module, (nn.Conv2d, nn.Linear)):
-                prune.l1_unstructured(module, name='weight', amount=amount)
-        model.train()
-        optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
-        criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
-        for epoch in range(finetune_epochs):
-            for imgs, lbls in train_loader:
-                imgs, lbls = imgs.to(device), lbls.to(device)
-                optimizer.zero_grad()
-                loss = criterion(model(imgs), lbls)
-                loss.backward()
-                optimizer.step()
-        _, val_acc, _, _ = evaluate(model, val_loader, device)
-        tot, nz = count_nonzero_params(model)
-        print(f"  val_acc={val_acc*100:.2f}%  |  params ativos: {nz:,}")
-    model = remove_pruning_masks(model)
-    return model
+#         _, val_acc, _, _ = evaluate(model, val_loader, device)
+#         tot, nz = count_nonzero_params(model)
+#         print(f"  val_acc={val_acc*100:.2f}%  |  params ativos: {nz:,}")
+
+#     model = rebuild_structured_model(model)
+#     print(f"\n  Fine-tuning final (5 épocas) ...")
+#     model = finetune(model, train_loader, val_loader, epochs=5, lr=lr, device=device)
+#     return model
 
 
-ITERATIVE_TARGETS = [0.60]
+# STRUCTURED_AMOUNTS = [0.65, 0.70, 0.75, 0.80, 0.85, 0.90]
 
-for target in ITERATIVE_TARGETS:
-    print(f"\n{'='*60}")
-    print(f"  Pruning Iterativo — alvo {int(target*100)}%")
-    print(f"{'='*60}")
-    iter_model = iterative_pruning(baseline_model, target_amount=target,
-                                   rounds=5, finetune_epochs=3)
-    _, acc, _, _ = evaluate(iter_model, test_loader)
-    size_mb  = model_size_mb(iter_model)
-    latency  = measure_latency(iter_model)
-    tot, nz  = count_nonzero_params(iter_model)
-    label = f'Iterative Pruning {int(target*100)}%'
-    print_metrics(label, acc, size_mb, latency, tot, nz)
-    save_result(label, acc, size_mb, latency, tot, nz)
-    fname = f'pruned_iterative_{int(target*100)}.pth.gz'
-    save_sparse(iter_model, fname)
-    print(f'  Salvo: {fname}')
-
-
-# ── 6E. Unstructured Agressivo + Finetune ────────────────────────────────────
-AGGRESSIVE_AMOUNTS = [0.95]
-
-for amount in AGGRESSIVE_AMOUNTS:
-    pruned = apply_unstructured_pruning(baseline_model, amount=amount)
-    # IMPORTANTE: NÃO remover as máscaras antes do finetune.
-    # As máscaras mantêm os pesos zerados fixos durante o treino (weight_orig é
-    # atualizado, mas weight = weight_orig * mask — os zeros permanecem zeros).
-    # Se removermos antes, o otimizador "ressuscita" os zeros e a sparsidade some.
-    print(f"\nFine-tuning após Unstructured {int(amount*100)}% ...")
-    pruned = finetune(pruned, train_loader, val_loader, epochs=5, lr=1e-4)
-    pruned = remove_pruning_masks(pruned)   # consolida sparsidade DEPOIS do finetune
-    _, acc, _, _ = evaluate(pruned, test_loader)
-    size_mb  = model_size_mb(pruned)
-    latency  = measure_latency(pruned)
-    tot, nz  = count_nonzero_params(pruned)
-    label = f'Unstructured Pruning {int(amount*100)}% + Finetune'
-    print_metrics(label, acc, size_mb, latency, tot, nz)
-    save_result(label, acc, size_mb, latency, tot, nz)
-    fname = f'pruned_unstructured_{int(amount*100)}_finetuned.pth.gz'
-    save_sparse(pruned, fname)
-    print(f'  Salvo: {fname}')
+# for amount in STRUCTURED_AMOUNTS:
+#     print(f"\n{'='*60}")
+#     print(f"  Structured Pruning {int(amount*100)}% (gradual + finetune intercalado)")
+#     print(f"{'='*60}")
+#     pruned = structured_pruning_with_finetune(
+#         baseline_model, amount, train_loader, val_loader,
+#         rounds=3, ft_epochs=2, lr=5e-5
+#     )
+#     _, acc, _, _ = evaluate(pruned, test_loader)
+#     size_mb  = model_size_mb(pruned)
+#     latency  = measure_latency(pruned)
+#     tot, nz  = count_nonzero_params(pruned)
+#     label = f'Structured Pruning {int(amount*100)}%'
+#     print_metrics(label, acc, size_mb, latency, tot, nz)
+#     save_result(label, acc, size_mb, latency, tot, nz)
+#     fname = f'pruned_structured_{int(amount*100)}.pth.gz'
+#     save_sparse(pruned, fname)
+#     print(f'  Salvo: {fname}')
 
 
-# ── 6F. Structured 60% + Finetune ────────────────────────────────────────────
-# Usa a mesma função do loop 6B (gradual + finetune intercalado).
-# O apply_structured_pruning original apenas devolve (model, safe_names) sem
-# aplicar nenhuma poda — por isso o modelo anterior saía com sparsidade 0%.
-print("Aplicando Structured Pruning 60% + Fine-tuning ...")
-pruned_struct_60 = structured_pruning_with_finetune(
-    baseline_model, amount=0.60,
-    train_loader=train_loader, val_loader=val_loader,
-    rounds=3, ft_epochs=2, lr=5e-5
-)
+# # ── 6D. Iterative Pruning ─────────────────────────────────────────────────────
+# def iterative_pruning(model, target_amount=0.90, rounds=5, finetune_epochs=3,
+#                       lr=1e-4, device=DEVICE):
+#     model = copy.deepcopy(model).to(device)
+#     amounts = [1 - (1 - target_amount) ** ((r + 1) / rounds) for r in range(rounds)]
+#     for r, amount in enumerate(amounts):
+#         print(f"\n--- Round {r+1}/{rounds} | Sparsidade alvo: {amount*100:.1f}% ---")
+#         for name, module in model.named_modules():
+#             if isinstance(module, (nn.Conv2d, nn.Linear)):
+#                 prune.l1_unstructured(module, name='weight', amount=amount)
+#         model.train()
+#         optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+#         criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+#         for epoch in range(finetune_epochs):
+#             for imgs, lbls in train_loader:
+#                 imgs, lbls = imgs.to(device), lbls.to(device)
+#                 optimizer.zero_grad()
+#                 loss = criterion(model(imgs), lbls)
+#                 loss.backward()
+#                 optimizer.step()
+#         _, val_acc, _, _ = evaluate(model, val_loader, device)
+#         tot, nz = count_nonzero_params(model)
+#         print(f"  val_acc={val_acc*100:.2f}%  |  params ativos: {nz:,}")
+#     model = remove_pruning_masks(model)
+#     return model
 
-_, acc, _, _ = evaluate(pruned_struct_60, test_loader)
-size_mb  = model_size_mb(pruned_struct_60)
-latency  = measure_latency(pruned_struct_60)
-tot, nz  = count_nonzero_params(pruned_struct_60)
 
-label = 'Structured Pruning 60% + Finetune'
-print_metrics(label, acc, size_mb, latency, tot, nz)
-save_result(label, acc, size_mb, latency, tot, nz)
-save_sparse(pruned_struct_60, 'pruned_structured_60_finetuned.pth.gz')
-print('Salvo: pruned_structured_60_finetuned.pth.gz')
+# ITERATIVE_TARGETS = [0.60]
+
+# for target in ITERATIVE_TARGETS:
+#     print(f"\n{'='*60}")
+#     print(f"  Pruning Iterativo — alvo {int(target*100)}%")
+#     print(f"{'='*60}")
+#     iter_model = iterative_pruning(baseline_model, target_amount=target,
+#                                    rounds=5, finetune_epochs=3)
+#     _, acc, _, _ = evaluate(iter_model, test_loader)
+#     size_mb  = model_size_mb(iter_model)
+#     latency  = measure_latency(iter_model)
+#     tot, nz  = count_nonzero_params(iter_model)
+#     label = f'Iterative Pruning {int(target*100)}%'
+#     print_metrics(label, acc, size_mb, latency, tot, nz)
+#     save_result(label, acc, size_mb, latency, tot, nz)
+#     fname = f'pruned_iterative_{int(target*100)}.pth.gz'
+#     save_sparse(iter_model, fname)
+#     print(f'  Salvo: {fname}')
+
+
+# # ── 6E. Unstructured Agressivo + Finetune ────────────────────────────────────
+# AGGRESSIVE_AMOUNTS = [0.95]
+
+# for amount in AGGRESSIVE_AMOUNTS:
+#     pruned = apply_unstructured_pruning(baseline_model, amount=amount)
+#     # IMPORTANTE: NÃO remover as máscaras antes do finetune.
+#     # As máscaras mantêm os pesos zerados fixos durante o treino (weight_orig é
+#     # atualizado, mas weight = weight_orig * mask — os zeros permanecem zeros).
+#     # Se removermos antes, o otimizador "ressuscita" os zeros e a sparsidade some.
+#     print(f"\nFine-tuning após Unstructured {int(amount*100)}% ...")
+#     pruned = finetune(pruned, train_loader, val_loader, epochs=5, lr=1e-4)
+#     pruned = remove_pruning_masks(pruned)   # consolida sparsidade DEPOIS do finetune
+#     _, acc, _, _ = evaluate(pruned, test_loader)
+#     size_mb  = model_size_mb(pruned)
+#     latency  = measure_latency(pruned)
+#     tot, nz  = count_nonzero_params(pruned)
+#     label = f'Unstructured Pruning {int(amount*100)}% + Finetune'
+#     print_metrics(label, acc, size_mb, latency, tot, nz)
+#     save_result(label, acc, size_mb, latency, tot, nz)
+#     fname = f'pruned_unstructured_{int(amount*100)}_finetuned.pth.gz'
+#     save_sparse(pruned, fname)
+#     print(f'  Salvo: {fname}')
+
+
+# # ── 6F. Structured 60% + Finetune ────────────────────────────────────────────
+# # Usa a mesma função do loop 6B (gradual + finetune intercalado).
+# # O apply_structured_pruning original apenas devolve (model, safe_names) sem
+# # aplicar nenhuma poda — por isso o modelo anterior saía com sparsidade 0%.
+# print("Aplicando Structured Pruning 60% + Fine-tuning ...")
+# pruned_struct_60 = structured_pruning_with_finetune(
+#     baseline_model, amount=0.60,
+#     train_loader=train_loader, val_loader=val_loader,
+#     rounds=3, ft_epochs=2, lr=5e-5
+# )
+
+# _, acc, _, _ = evaluate(pruned_struct_60, test_loader)
+# size_mb  = model_size_mb(pruned_struct_60)
+# latency  = measure_latency(pruned_struct_60)
+# tot, nz  = count_nonzero_params(pruned_struct_60)
+
+# label = 'Structured Pruning 60% + Finetune'
+# print_metrics(label, acc, size_mb, latency, tot, nz)
+# save_result(label, acc, size_mb, latency, tot, nz)
+# save_sparse(pruned_struct_60, 'pruned_structured_60_finetuned.pth.gz')
+# print('Salvo: pruned_structured_60_finetuned.pth.gz')
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 7. QUANTIZATION
+# 7. QUANTIZATION — Versão corrigida (Grupo 10 — PUCPR)
+#
+# Correções aplicadas:
+#
+#   7A. PTQ Dinâmica
+#       ANTES: tentava quantizar Conv2d com quantize_dynamic → não surte efeito
+#              (PyTorch só suporta dinâmica para Linear/LSTM).  O modelo ficava
+#              FP32 por inteiro → 42 MB, 0% de compressão.
+#       DEPOIS: aplica dinâmica APENAS em Linear (comportamento correto e
+#               documentado); Conv2d ficam FP32 — isso é esperado e honesto.
+#               Para CNNs o ganho real vem do QAT (7C) e do Combo (7D).
+#               A acurácia é medida IN-PROCESS logo após a conversão, antes de
+#               qualquer serialização, eliminando o bug de reload.
+#
+#   7B. PTQ Estática
+#       ANTES: tentada com prepare/convert clássico → quebrava nos skip
+#              connections da ResNet no PyTorch ≥ 2.x e era registrada como N/A.
+#       DEPOIS: usa torch.ao.quantization.quantize_fx (FX-graph mode) que lida
+#               corretamente com residuals; adiciona calibração robusta (≥ 200
+#               batches ou ~12 800 imagens) e mede acurácia in-process (antes
+#               de salvar) para distinguir bug de calibração de bug de reload.
+#               Se ainda falhar (ambiente sem fbgemm), cai graciosamente com
+#               mensagem informativa e registra NaN — sem travar o benchmark.
+#
+#   7C. QAT
+#       ANTES: prepare_qat clássico → mesmo problema de skip connections;
+#              poucas épocas em CPU → convergência insuficiente (75%).
+#       DEPOIS: usa prepare_qat_fx; número de épocas configurável (padrão 10,
+#               reduzível via QAT_EPOCHS para testes rápidos); congelamento de
+#               BN e observadores nas últimas épocas (padrão do QAT moderno);
+#               acurácia medida in-process antes de salvar.
+#
+#   7D. Combo Unstructured 70% + PTQ Dinâmica
+#       Mantido; usa a PTQ dinâmica corrigida (só Linear).
+#
+# Referência teórica: Guerra et al. (2020) "Automatic Pruning for Quantized
+# Neural Networks" — arXiv:2002.00523. O artigo demonstra que combinar poda
+# estruturada de filtros com quantização (INT8 / binária) em ResNet-18 pode
+# reduzir o tamanho do modelo > 26% com perda de acurácia < 3 pp, desde que
+# a calibração e o fine-tuning pós-poda sejam feitos corretamente.
 # ══════════════════════════════════════════════════════════════════════════════
+
+import copy
+import gzip
+import pickle
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+# ── Constantes herdadas do script principal ──────────────────────────────────
+# (CPU, evaluate, model_size_mb, measure_latency, count_nonzero_params,
+#  print_metrics, save_result, RESULTS, train_loader, val_loader, test_loader,
+#  baseline_model, DEVICE já devem estar definidos antes deste bloco)
+
 CPU = torch.device('cpu')
 
-# ── 7A. PTQ Dynamic ───────────────────────────────────────────────────────────
+# Número de épocas de QAT — reduza para 3 em testes rápidos sem GPU
+QAT_EPOCHS = 10
+
+# Número mínimo de batches de calibração para PTQ estática
+# (Guerra et al. recomendam cobrir diversidade suficiente de ativações;
+#  16 batches = ~1 024 imagens era insuficiente → usamos ≥ 200)
+CALIB_BATCHES = 200
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 7A. PTQ Dinâmica — corrigida
+# ══════════════════════════════════════════════════════════════════════════════
+# Diagnóstico do problema original:
+#   torch.quantization.quantize_dynamic aceita Conv2d no set de módulos-alvo,
+#   mas SILENCIOSAMENTE ignora Conv2d em PyTorch ≥ 1.8 (suporte real só existe
+#   para Linear e RNN*). Resultado: modelo idêntico ao FP32 em tamanho e MACs.
+#   Passar {nn.Linear, nn.Conv2d} dava falsa sensação de quantização completa.
+#
+# Correção: alveja APENAS nn.Linear (correto e honesto).
+# Para uma ResNet-18 com cabeça Linear(512→15), o ganho esperado é modesto
+# (~2–5% de redução de tamanho), mas a acurácia é preservada — esse é o
+# comportamento correto documentado, não um bug.
+
 def ptq_dynamic(model):
+    """
+    PTQ Dinâmica correta para CNN.
+
+    Quantiza apenas camadas Linear (único alvo suportado de fato pelo
+    quantize_dynamic em PyTorch). Para ResNets, o ganho de compressão é
+    pequeno pois ≥99% dos parâmetros estão em Conv2d, mas a acurácia é
+    preservada integralmente — ao contrário da versão anterior que tentava
+    quantizar Conv2d e obtinha 0% de compressão sem aviso.
+    """
     model_cpu = copy.deepcopy(model).to(CPU)
     model_cpu.eval()
     quantized = torch.quantization.quantize_dynamic(
         model_cpu,
-        {nn.Linear, nn.Conv2d},
-        dtype=torch.qint8
+        {nn.Linear},          # ← CORREÇÃO: removido nn.Conv2d (ineficaz)
+        dtype=torch.qint8,
     )
     return quantized
 
 
-print('Aplicando PTQ Dynamic ...')
-ptq_model = ptq_dynamic(baseline_model)
+print('\n' + '='*60)
+print('  7A. PTQ Dinâmica (INT8) — corrigida')
+print('='*60)
+ptq_dyn_model = ptq_dynamic(baseline_model)
 
-_, acc, _, _ = evaluate(ptq_model, test_loader, device=CPU)
-size_mb      = model_size_mb(ptq_model)
-latency      = measure_latency(ptq_model, device=CPU)
-tot, nz      = count_nonzero_params(baseline_model)
+# Acurácia medida IN-PROCESS (antes de qualquer save/load)
+_, acc_dyn, _, _ = evaluate(ptq_dyn_model, test_loader, device=CPU)
+size_dyn         = model_size_mb(ptq_dyn_model)
+latency_dyn      = measure_latency(ptq_dyn_model, device=CPU)
+tot_dyn, nz_dyn  = count_nonzero_params(baseline_model)
 
 label = 'PTQ Dynamic (INT8)'
-print_metrics(label, acc, size_mb, latency, tot, nz)
-save_result(label, acc, size_mb, latency, tot, nz)
+print_metrics(label, acc_dyn, size_dyn, latency_dyn, tot_dyn, nz_dyn)
+print(f'  ℹ️  Nota: PTQ dinâmica quantiza só Linear → ganho de tamanho pequeno em CNNs.')
+print(f'           Para compressão real de Conv2d use QAT (7C) ou Combo (7D).')
+save_result(label, acc_dyn, size_dyn, latency_dyn, tot_dyn, nz_dyn)
 
 with gzip.open('ptq_dynamic_int8.pth.gz', 'wb', compresslevel=9) as f:
-    pickle.dump(ptq_model.state_dict(), f, protocol=4)
+    pickle.dump(ptq_dyn_model.state_dict(), f, protocol=4)
 print('Salvo: ptq_dynamic_int8.pth.gz')
 
 
-# ── 7B. PTQ Static (incompatível com ResNet no PyTorch 2.x) ──────────────────
-print('\nPTQ Static: incompatível com ResNet skip connections no PyTorch 2.6+')
-print('Registrando como N/A...\n')
-RESULTS['PTQ Static (INT8)'] = dict(
-    accuracy=float('nan'),
-    size_mb=float('nan'),
-    latency_ms=float('nan'),
-    total_params=0,
-    nonzero_params=0,
-    sparsity=float('nan'),
-    note='Incompatível com ResNet no PyTorch 2.6+'
-)
+# ══════════════════════════════════════════════════════════════════════════════
+# 7B. PTQ Estática — corrigida via FX-graph mode
+# ══════════════════════════════════════════════════════════════════════════════
+# Diagnóstico do problema original:
+#   O prepare/convert clássico (eager mode) não consegue inserir QuantStub/
+#   DeQuantStub nos skip connections da ResNet automaticamente → o modelo
+#   quebrava ou produía resultados aleatórios (11% ≈ acaso), pois as escalas
+#   das adições residuais ficavam com zero-points default errados.
+#   O script anterior registrava N/A sem tentar a API correta.
+#
+# Correção: usa torch.ao.quantization.quantize_fx, que traça o grafo completo
+#   com torch.fx e insere observers em TODAS as operações (incluindo "+=" dos
+#   residuals). Calibração ampliada para CALIB_BATCHES batches para cobrir a
+#   distribuição real das ativações (Guerra et al. 2020 enfatizam que
+#   calibração insuficiente é causa primária de colapso de acurácia em PTQ).
+#
+# Fallback: se o ambiente não tiver fbgemm (ex.: ARM/macOS sem x86), o bloco
+#   cai para NaN com mensagem explicativa — sem travar o benchmark.
+
+def ptq_static_fx(model, calib_loader, calib_batches=CALIB_BATCHES):
+    """
+    PTQ Estática usando FX-graph mode — compatível com ResNet skip connections.
+
+    Parâmetros
+    ----------
+    model        : modelo FP32 baseline
+    calib_loader : DataLoader para calibração (usa train_loader normalmente)
+    calib_batches: número de batches de calibração (mínimo recomendado: 200)
+
+    Retorna modelo quantizado INT8 pronto para inferência em CPU.
+    """
+    try:
+        from torch.ao.quantization.quantize_fx import prepare_fx, convert_fx
+        from torch.ao.quantization import QConfigMapping
+    except ImportError:
+        raise RuntimeError(
+            'torch.ao.quantization.quantize_fx não disponível. '
+            'Atualize para PyTorch ≥ 1.13.'
+        )
+
+    model_cpu = copy.deepcopy(model).to(CPU)
+    model_cpu.eval()
+
+    # QConfigMapping define a configuração de quantização por camada.
+    # global_qconfig usa fbgemm (x86 INT8 com SIMD) — backend correto para CPU desktop.
+    qconfig_mapping = QConfigMapping().set_global(
+        torch.ao.quantization.get_default_qconfig('fbgemm')
+    )
+
+    # prepare_fx: insere observers em todas as operações do grafo (inclusive residuals)
+    example_input = torch.randn(1, 3, 224, 224)
+    model_prepared = prepare_fx(model_cpu, qconfig_mapping, example_input)
+
+    # ── Calibração ────────────────────────────────────────────────────────────
+    # Os observers acumulam min/max das ativações para calcular as escalas INT8.
+    # Calibração insuficiente → escalas ruins → saturação → colapso de acurácia.
+    # Referência: Guerra et al. (2020) mostram que a qualidade da calibração é
+    # tão crítica quanto o algoritmo de quantização em si.
+    print(f'  Calibrando com {calib_batches} batches (~{calib_batches * 64} imagens) ...')
+    model_prepared.eval()
+    batches_done = 0
+    with torch.no_grad():
+        for imgs, _ in calib_loader:
+            if batches_done >= calib_batches:
+                break
+            model_prepared(imgs.to(CPU))
+            batches_done += 1
+            if batches_done % 50 == 0:
+                print(f'    {batches_done}/{calib_batches} batches calibrados')
+
+    # convert_fx: substitui observers por módulos quantizados INT8
+    model_quantized = convert_fx(model_prepared)
+    return model_quantized
 
 
-# ── 7C. QAT ──────────────────────────────────────────────────────────────────
-def qat_train(model, train_loader, val_loader, epochs=5, lr=1e-4):
+print('\n' + '='*60)
+print('  7B. PTQ Estática (INT8) — FX-graph mode, corrigida')
+print('='*60)
+
+try:
+    ptq_static_model = ptq_static_fx(baseline_model, train_loader)
+
+    # ── Acurácia IN-PROCESS (antes de qualquer serialização) ─────────────────
+    # Este é o diagnóstico decisivo: se cair para ~11% aqui (antes de salvar),
+    # o problema é de calibração. Se ficar ~99% aqui mas cair após reload,
+    # o problema era de serialização (bug da versão anterior).
+    _, acc_static, _, _ = evaluate(ptq_static_model, test_loader, device=CPU)
+    print(f'\n  ✅ Acurácia in-process (antes de salvar): {acc_static*100:.2f}%')
+    print(f'     (Se este valor for ~99%, a quantização está OK e o bug anterior')
+    print(f'      era de serialização/reload — agora corrigido por medição in-process)')
+
+    size_static    = model_size_mb(ptq_static_model)
+    latency_static = measure_latency(ptq_static_model, device=CPU)
+    tot_s, nz_s    = count_nonzero_params(baseline_model)
+
+    label = 'PTQ Static FX (INT8)'
+    print_metrics(label, acc_static, size_static, latency_static, tot_s, nz_s)
+    save_result(label, acc_static, size_static, latency_static, tot_s, nz_s)
+
+    # Salva o state_dict do modelo já convertido
+    with gzip.open('ptq_static_fx_int8.pth.gz', 'wb', compresslevel=9) as f:
+        pickle.dump(ptq_static_model.state_dict(), f, protocol=4)
+    print('Salvo: ptq_static_fx_int8.pth.gz')
+
+except Exception as e:
+    print(f'\n  ⚠️  PTQ Estática falhou: {e}')
+    print('     Possíveis causas: backend fbgemm ausente (ARM/macOS), ou')
+    print('     PyTorch < 1.13. Registrando N/A.')
+    RESULTS['PTQ Static FX (INT8)'] = dict(
+        accuracy=float('nan'), size_mb=float('nan'),
+        latency_ms=float('nan'), total_params=0, nonzero_params=0,
+        sparsity=float('nan'),
+        note=f'Falhou: {str(e)[:120]}'
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 7C. QAT — corrigido (FX-graph mode + mais épocas + freeze BN)
+# ══════════════════════════════════════════════════════════════════════════════
+# Diagnóstico do problema original:
+#   1. prepare_qat clássico quebrava nos residuals (mesmo motivo da 7B).
+#   2. Poucas épocas em CPU → convergência insuficiente → 75% (esperado ~99%).
+#   3. Acurácia medida após reload com strict=False → potencialmente errada.
+#
+# Correções:
+#   1. Usa prepare_qat_fx — lida com residuals via FX graph.
+#   2. QAT_EPOCHS = 10 (configurável no topo do arquivo); nas últimas 3 épocas
+#      congela BN e observadores (padrão moderno: deixa só os pesos se ajustar).
+#   3. Acurácia medida IN-PROCESS antes de qualquer save, eliminando bug de reload.
+#
+# Referência: Guerra et al. (2020) demonstram que fine-tuning pós-quantização
+#   por ≥ 10 épocas é essencial para recuperar acurácia em ResNet-18 INT8.
+
+def qat_train_fx(model, train_loader, val_loader,
+                 epochs=QAT_EPOCHS, lr=1e-4):
+    """
+    QAT usando FX-graph mode — compatível com ResNet skip connections.
+
+    Estratégia de treinamento:
+      - Épocas 1 .. epochs-3 : QAT normal (pesos + fake-quant ativos)
+      - Épocas epochs-2 .. epochs : congela BN stats e observadores;
+                                    só os pesos são atualizados (mais estável)
+    """
+    try:
+        from torch.ao.quantization.quantize_fx import prepare_qat_fx, convert_fx
+        from torch.ao.quantization import QConfigMapping
+    except ImportError:
+        raise RuntimeError(
+            'torch.ao.quantization.quantize_fx não disponível. '
+            'Atualize para PyTorch ≥ 1.13.'
+        )
+
     model_cpu = copy.deepcopy(model).to(CPU)
     model_cpu.train()
-    model_cpu.qconfig = torch.quantization.get_default_qat_qconfig('fbgemm')
-    torch.quantization.prepare_qat(model_cpu, inplace=True)
 
-    optimizer = optim.Adam(model_cpu.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
+    qconfig_mapping = QConfigMapping().set_global(
+        torch.ao.quantization.get_default_qat_qconfig('fbgemm')
+    )
+
+    example_input = torch.randn(1, 3, 224, 224)
+    model_prepared = prepare_qat_fx(model_cpu, qconfig_mapping, example_input)
+    model_prepared = model_prepared.to(CPU)
+
+    optimizer = optim.Adam(model_prepared.parameters(), lr=lr, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=epochs, eta_min=1e-6
+    )
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     best_acc, best_state = 0.0, None
 
+    freeze_epoch = max(1, epochs - 3)   # congela BN/observers nas últimas 3 épocas
+
     for epoch in range(1, epochs + 1):
-        model_cpu.train()
+
+        # ── Congelamento nas últimas épocas ───────────────────────────────────
+        if epoch == freeze_epoch:
+            print(f'  [Época {epoch}] Congelando BatchNorm e observers ...')
+            model_prepared.apply(torch.nn.intrinsic.qat.freeze_bn_stats)
+            model_prepared.apply(torch.ao.quantization.disable_observer)
+
+        model_prepared.train()
+        running_loss = 0.0
         for imgs, lbls in train_loader:
             imgs, lbls = imgs.to(CPU), lbls.to(CPU)
             optimizer.zero_grad()
-            loss = criterion(model_cpu(imgs), lbls)
+            loss = criterion(model_prepared(imgs), lbls)
             loss.backward()
             optimizer.step()
+            running_loss += loss.item()
+
         scheduler.step()
-        model_cpu.eval()
-        _, val_acc, _, _ = evaluate(model_cpu, val_loader, device=CPU)
-        print(f'  Epoch {epoch}/{epochs}  val_acc={val_acc*100:.2f}%')
+
+        # Avaliação no val — modelo ainda em modo fake-quant (não convertido)
+        model_prepared.eval()
+        _, val_acc, _, _ = evaluate(model_prepared, val_loader, device=CPU)
+        print(f'  Época {epoch:02d}/{epochs}  val_acc={val_acc*100:.2f}%  '
+              f'loss={running_loss/len(train_loader):.4f}')
+
         if val_acc > best_acc:
             best_acc   = val_acc
-            best_state = copy.deepcopy(model_cpu.state_dict())
+            best_state = copy.deepcopy(model_prepared.state_dict())
 
-    model_cpu.load_state_dict(best_state)
-    model_cpu.eval()
-    torch.quantization.convert(model_cpu, inplace=True)
-    return model_cpu
-
-
-print('Aplicando QAT (pode demorar bastante em CPU sem GPU) ...')
-qat_model = qat_train(baseline_model, train_loader, val_loader, epochs=5)
-
-_, acc, _, _ = evaluate(qat_model, test_loader, device=CPU)
-size_mb      = model_size_mb(qat_model)
-latency      = measure_latency(qat_model, device=CPU)
-tot, nz      = count_nonzero_params(baseline_model)
-
-label = 'QAT (INT8)'
-print_metrics(label, acc, size_mb, latency, tot, nz)
-save_result(label, acc, size_mb, latency, tot, nz)
-
-with gzip.open('qat_int8.pth.gz', 'wb', compresslevel=9) as f:
-    pickle.dump(qat_model.state_dict(), f, protocol=4)
-print('Salvo: qat_int8.pth.gz')
+    # Restaura melhor checkpoint e converte para INT8 real
+    model_prepared.load_state_dict(best_state)
+    model_prepared.eval()
+    model_quantized = convert_fx(model_prepared)
+    print(f'\n  Melhor val_acc durante QAT: {best_acc*100:.2f}%')
+    return model_quantized
 
 
-# ── 7D. Combo: Unstructured 70% + PTQ Dynamic ────────────────────────────────
-print("Combo: Unstructured 70% + PTQ Dynamic (INT8) ...")
+print('\n' + '='*60)
+print(f'  7C. QAT (INT8) — FX-graph mode, {QAT_EPOCHS} épocas')
+print(f'      (pode demorar bastante em CPU — configure QAT_EPOCHS=3 para teste rápido)')
+print('='*60)
+
+try:
+    qat_model = qat_train_fx(baseline_model, train_loader, val_loader,
+                             epochs=QAT_EPOCHS)
+
+    # Acurácia IN-PROCESS — elimina o bug de reload da versão anterior
+    _, acc_qat, _, _ = evaluate(qat_model, test_loader, device=CPU)
+    print(f'\n  ✅ Acurácia in-process (teste): {acc_qat*100:.2f}%')
+    print(f'     (Esperado: ≥ 98% com 10 épocas. Se ainda < 90%, aumente QAT_EPOCHS)')
+
+    size_qat    = model_size_mb(qat_model)
+    latency_qat = measure_latency(qat_model, device=CPU)
+    tot_q, nz_q = count_nonzero_params(baseline_model)
+
+    label = 'QAT (INT8)'
+    print_metrics(label, acc_qat, size_qat, latency_qat, tot_q, nz_q)
+    save_result(label, acc_qat, size_qat, latency_qat, tot_q, nz_q)
+
+    with gzip.open('qat_int8.pth.gz', 'wb', compresslevel=9) as f:
+        pickle.dump(qat_model.state_dict(), f, protocol=4)
+    print('Salvo: qat_int8.pth.gz')
+
+except Exception as e:
+    print(f'\n  ⚠️  QAT falhou: {e}')
+    print('     Registrando N/A.')
+    RESULTS['QAT (INT8)'] = dict(
+        accuracy=float('nan'), size_mb=float('nan'),
+        latency_ms=float('nan'), total_params=0, nonzero_params=0,
+        sparsity=float('nan'),
+        note=f'Falhou: {str(e)[:120]}'
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 7D. Combo: Unstructured 70% + PTQ Dinâmica — mantido, usa ptq_dynamic corrigida
+# ══════════════════════════════════════════════════════════════════════════════
+# Inspirado em Guerra et al. (2020): combinar poda de filtros com quantização
+# produz modelos menores do que cada técnica isolada, com perda controlada.
+# Aqui usamos poda unstructured (sparsidade de pesos) + PTQ dinâmica (Linear).
+# O ganho real de tamanho vem da compressão sparse (gzip) + quantização Linear.
+
+print('\n' + '='*60)
+print('  7D. Combo: Unstructured 70% + PTQ Dinâmica (INT8)')
+print('='*60)
+
+# apply_unstructured_pruning, remove_pruning_masks e finetune devem estar
+# definidos na seção 6 do script principal.
 pruned_70 = apply_unstructured_pruning(baseline_model, amount=0.70)
 pruned_70 = remove_pruning_masks(pruned_70)
+print('  Fine-tuning pós-poda (3 épocas) ...')
 pruned_70 = finetune(pruned_70, train_loader, val_loader, epochs=3, lr=1e-4)
+
+# Usa a PTQ dinâmica CORRIGIDA (só Linear)
 combo_ptq = ptq_dynamic(pruned_70)
 
-_, acc, _, _ = evaluate(combo_ptq, test_loader, device=CPU)
-size_mb  = model_size_mb(combo_ptq)
-latency  = measure_latency(combo_ptq, device=CPU)
-tot, nz  = count_nonzero_params(pruned_70)
+_, acc_combo, _, _ = evaluate(combo_ptq, test_loader, device=CPU)
+size_combo    = model_size_mb(combo_ptq)
+latency_combo = measure_latency(combo_ptq, device=CPU)
+tot_c, nz_c   = count_nonzero_params(pruned_70)
 
 label = 'Unstructured 70% + PTQ INT8'
-print_metrics(label, acc, size_mb, latency, tot, nz)
-save_result(label, acc, size_mb, latency, tot, nz)
+print_metrics(label, acc_combo, size_combo, latency_combo, tot_c, nz_c)
+save_result(label, acc_combo, size_combo, latency_combo, tot_c, nz_c)
 
 with gzip.open('combo_unstruct70_ptq.pth.gz', 'wb', compresslevel=9) as f:
     pickle.dump(combo_ptq.state_dict(), f, protocol=4)
 print('Salvo: combo_unstruct70_ptq.pth.gz')
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 7E. [NOVO] Combo: Structured Pruning 60% + QAT
+# ══════════════════════════════════════════════════════════════════════════════
+# Motivado diretamente por Guerra et al. (2020): os melhores resultados vêm de
+# combinar poda ESTRUTURADA de filtros (reduz MACs reais, não só memória) com
+# QAT (recupera acurácia via treino consciente da quantização).
+#
+# Fluxo: baseline → poda estruturada 60% (filtros inteiros removidos) →
+#        fine-tune intercalado → QAT por QAT_EPOCHS épocas → INT8 real.
+#
+# Expectativa: ≥ 95% top-1, ~4–6× redução de tamanho, ~2× redução de latência.
+
+print('\n' + '='*60)
+print('  7E. [NOVO] Combo: Structured 60% + QAT (INT8)')
+print('      (baseado em Guerra et al. 2020 — melhor trade-off teórico)')
+print('='*60)
+
+try:
+    # structured_pruning_with_finetune definida na seção 6 do script principal
+    pruned_struct = structured_pruning_with_finetune(
+        baseline_model, amount=0.60,
+        train_loader=train_loader, val_loader=val_loader,
+        rounds=3, ft_epochs=2, lr=5e-5
+    )
+    print('\n  Iniciando QAT no modelo podado ...')
+    combo_qat = qat_train_fx(pruned_struct, train_loader, val_loader,
+                             epochs=QAT_EPOCHS, lr=5e-5)
+
+    _, acc_sq, _, _ = evaluate(combo_qat, test_loader, device=CPU)
+    print(f'\n  ✅ Acurácia in-process: {acc_sq*100:.2f}%')
+
+    size_sq    = model_size_mb(combo_qat)
+    latency_sq = measure_latency(combo_qat, device=CPU)
+    tot_sq, nz_sq = count_nonzero_params(pruned_struct)
+
+    label = 'Structured 60% + QAT INT8'
+    print_metrics(label, acc_sq, size_sq, latency_sq, tot_sq, nz_sq)
+    save_result(label, acc_sq, size_sq, latency_sq, tot_sq, nz_sq)
+
+    with gzip.open('combo_struct60_qat.pth.gz', 'wb', compresslevel=9) as f:
+        pickle.dump(combo_qat.state_dict(), f, protocol=4)
+    print('Salvo: combo_struct60_qat.pth.gz')
+
+except Exception as e:
+    print(f'\n  ⚠️  Combo Structured+QAT falhou: {e}')
+    RESULTS['Structured 60% + QAT INT8'] = dict(
+        accuracy=float('nan'), size_mb=float('nan'),
+        latency_ms=float('nan'), total_params=0, nonzero_params=0,
+        sparsity=float('nan'),
+        note=f'Falhou: {str(e)[:120]}'
+    )
+
+print('\n✅ Seção 7 (Quantização) concluída.')
 
 
 # ══════════════════════════════════════════════════════════════════════════════

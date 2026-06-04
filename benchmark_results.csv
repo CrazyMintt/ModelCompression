@@ -1,0 +1,21 @@
+Modelo,Acurácia (%),Tamanho (MB),Latência (ms),MACs (M),Params Totais,Params Ativos,Sparsidade (%)
+Baseline,99.58,44.16,20.94,1813.57,11184207.0,11184207.0,0.0
+Iterative Pruning 60%,96.77,3.76,11.94,1813.57,11184207.0,724788.0,93.5
+Structured Pruning 30%,21.71,30.63,21.64,1302.38,7875079.0,7875079.0,0.0
+Structured Pruning 40%,10.72,26.37,10.74,1136.53,6776263.0,6776263.0,0.0
+Structured Pruning 50% + Finetune,98.84,22.15,7.91,975.43,5689551.0,5689551.0,0.0
+Structured Pruning 55% + Finetune,97.84,19.97,8.05,883.31,5127751.0,5127751.0,0.0
+Structured Pruning 60% + Finetune,98.0,17.81,7.77,801.57,4572295.0,4572295.0,0.0
+Unstructured Pruning 90%,11.47,5.63,23.18,1813.57,11184207.0,1127074.0,89.9
+Unstructured Pruning 85%,8.11,8.29,23.18,1813.57,11184207.0,1685804.0,84.9
+Unstructured Pruning 95%,6.82,2.94,20.52,1813.57,11184207.0,568344.0,94.9
+Unstructured Pruning 95% + Finetune,91.12,3.01,12.01,1813.57,11184207.0,568344.0,94.9
+Structured Pruning 30% + Finetune,98.64,30.63,10.06,1302.38,7875079.0,7875079.0,0.0
+Structured Pruning 40% + Finetune,98.9,26.37,9.16,1136.53,6776263.0,6776263.0,0.0
+Structured Pruning 65% + Finetune,96.96,15.69,7.24,717.46,4028935.0,4028935.0,0.0
+Structured Pruning 70% + Finetune,96.35,13.54,6.86,635.73,3473479.0,3473479.0,0.0
+Structured Pruning 50%,7.72,22.15,7.84,975.43,5689551.0,5689551.0,0.0
+Structured Pruning 55%,7.72,19.97,7.92,883.31,5127751.0,5127751.0,0.0
+Structured Pruning 60%,7.72,17.81,7.66,801.57,4572295.0,4572295.0,0.0
+Structured Pruning 65%,7.72,15.69,7.02,717.46,4028935.0,4028935.0,0.0
+Structured Pruning 70%,7.72,13.54,6.87,635.73,3473479.0,3473479.0,0.0

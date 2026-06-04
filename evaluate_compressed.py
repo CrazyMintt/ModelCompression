@@ -119,20 +119,189 @@ def fuse_resnet_modules(model):
 
 # ── Loading Logic ─────────────────────────────────────────────────────────────
 
-def load_sparse(model, path):
-    with gzip.open(path, 'rb') as f:
-        sparse_state = pickle.load(f)
-    dense_state = {k: v.to_dense() if hasattr(v, 'is_sparse') and v.is_sparse else v
-                   for k, v in sparse_state.items()}
-    model.load_state_dict(dense_state)
+def adapt_model_to_state_dict(model, state_dict):
+    """Adapta a arquitetura do modelo FP32 para bater com os tensores reduzidos do state_dict"""
+    def _replace_module(model, name, new_module):
+        parts = name.split('.')
+        parent = model
+        for p in parts[:-1]:
+            parent = getattr(parent, p)
+        setattr(parent, parts[-1], new_module)
+
+    for name, module in dict(model.named_modules()).items():
+        if name == "": continue
+        w_key = name + ".weight"
+        if w_key in state_dict:
+            state_shape = state_dict[w_key].shape
+            
+            if isinstance(module, nn.Conv2d):
+                out_c, in_c_over_groups, kH, kW = state_shape
+                in_c = in_c_over_groups * module.groups
+                if module.in_channels != in_c or module.out_channels != out_c:
+                    new_conv = nn.Conv2d(in_c, out_c, module.kernel_size, module.stride, 
+                                         module.padding, bias=(module.bias is not None), 
+                                         groups=module.groups)
+                    _replace_module(model, name, new_conv)
+            
+            elif isinstance(module, nn.BatchNorm2d):
+                num_f = state_shape[0]
+                if module.num_features != num_f:
+                    new_bn = nn.BatchNorm2d(num_f, module.eps, module.momentum, 
+                                            module.affine, module.track_running_stats)
+                    _replace_module(model, name, new_bn)
+                    
+            elif isinstance(module, nn.Linear):
+                out_f, in_f = state_shape
+                if module.in_features != in_f or module.out_features != out_f:
+                    new_lin = nn.Linear(in_f, out_f, bias=(module.bias is not None))
+                    _replace_module(model, name, new_lin)
     return model
+
+def load_sparse(model, path, is_quantized=False):
+    with gzip.open(path, 'rb') as f:
+        payload = pickle.load(f)
+
+    # Caso 1: arquivo contém o modelo completo (não só state_dict)
+    if isinstance(payload, nn.Module):
+        print("  Detected: full model object in .gz — using directly.")
+        return payload.eval()
+
+    if not isinstance(payload, dict):
+        raise TypeError(f"Unexpected payload type in .gz: {type(payload)}")
+
+    # Converte sparse → dense onde necessário
+    dense_state = {
+        k: (v.to_dense() if isinstance(v, torch.Tensor) and v.is_sparse else v)
+        for k, v in payload.items()
+    }
+
+    if not is_quantized:
+        # Modelo FP32 normal (baseline, pruning, etc.)
+        model = adapt_model_to_state_dict(model, dense_state)
+        model.load_state_dict(dense_state, strict=True)
+        return model
+
+    # ── Detecta o tipo de quantização pelo conteúdo do state dict ──────────
+    has_quantized_conv = any(
+        isinstance(v, torch.Tensor) and v.is_quantized
+        for v in dense_state.values()
+    )
+    has_packed = any('_packed_params' in k for k in dense_state)
+
+    if has_quantized_conv:
+        # PTQ Estática FX — Conv2d + Linear quantizados, formato misto
+        print("  Detected: static PTQ (FX) — quantized Conv2d weights found.")
+        try:
+            return load_static_ptq_fx(dense_state, num_classes=15)
+        except Exception as e:
+            raise RuntimeError(f"Failed to reconstruct static PTQ (FX) model: {e}")
+
+    elif has_packed:
+        # PTQ Dinâmica — só Linear quantizado (_packed_params, Conv continua FP32)
+        print("  Detected: dynamic PTQ — quantized Linear only.")
+        model = torch.quantization.quantize_dynamic(
+            model, {nn.Linear}, dtype=torch.qint8
+        )
+        own_state = model.state_dict()
+        for k, v in dense_state.items():
+            if k in own_state:
+                own_state[k] = v
+        model.load_state_dict(own_state, strict=False)
+        return model
+
+    else:
+        # Nenhum indicador de quantização — carrega como FP32
+        model.load_state_dict(dense_state, strict=True)
+        return model
+        
+def load_static_ptq_fx(dense_state, num_classes=15):
+    """
+    Carrega PTQ estática FX reconstruindo os módulos manualmente.
+    
+    O state dict salvo tem formato misto:
+      - Conv2d: chaves flat (conv1.weight quantized + conv1.scale + conv1.zero_point)
+      - Linear: chaves packed  (fc.1._packed_params._packed_params)
+    
+    load_state_dict falha porque o convert_fx reconstruído gera chaves diferentes.
+    Solução: popular cada módulo diretamente via suas APIs internas.
+    """
+    from torch.ao.quantization.quantize_fx import prepare_fx, convert_fx
+    from torch.ao.quantization import QConfigMapping
+    import torch.ao.nn.quantized as nnq
+
+    # 1. Reconstrói a arquitetura FX convertida (estrutura correta de módulos)
+    model = build_model(num_classes).eval()
+    qconfig_mapping = QConfigMapping().set_global(
+        torch.ao.quantization.get_default_qconfig('fbgemm')
+    )
+    example_input = torch.randn(1, 3, 224, 224)
+    model_prepared = prepare_fx(model, qconfig_mapping, example_input)
+    model_converted = convert_fx(model_prepared)
+
+    # 2. Separa as chaves do state dict salvo por categoria
+    # Chaves de activation: conv1_input_scale_0, layer1_0_relu_scale_0, etc.
+    # Chaves de módulo:     conv1.weight, conv1.scale, fc.1._packed_params...
+    activation_keys = {k: v for k, v in dense_state.items()
+                       if '_scale_' in k or '_zero_point_' in k}
+    module_keys     = {k: v for k, v in dense_state.items()
+                       if k not in activation_keys}
+
+    # 3. Carrega activation scales/zero_points diretamente no state dict do modelo
+    #    (essas chaves batem entre o modelo salvo e o reconstruído)
+    converted_state = model_converted.state_dict()
+    for k, v in activation_keys.items():
+        if k in converted_state:
+            converted_state[k] = v
+
+    # 4. Para cada módulo quantizado no modelo reconstruído, popula manualmente
+    #    usando os tensores do state dict salvo
+    for mod_name, mod in model_converted.named_modules():
+
+        # ── Conv2d quantizado (formato flat: .weight/.scale/.zero_point) ──
+        if isinstance(mod, nnq.Conv2d):
+            w_key  = f"{mod_name}.weight"
+            sc_key = f"{mod_name}.scale"
+            zp_key = f"{mod_name}.zero_point"
+            b_key  = f"{mod_name}.bias"
+
+            if w_key in module_keys:
+                w  = module_keys[w_key]           # já é quantized tensor
+                sc = float(module_keys[sc_key])
+                zp = int(module_keys[zp_key])
+                b  = module_keys.get(b_key, None)
+                # set_weight_bias espera tensor quantizado + bias float
+                mod.set_weight_bias(w, b)
+                mod.scale      = sc
+                mod.zero_point = zp
+                print(f"    [Conv2d] loaded: {mod_name}")
+
+        # ── Linear quantizado (formato packed: _packed_params._packed_params) ──
+        elif isinstance(mod, nnq.Linear):
+            pp_key  = f"{mod_name}._packed_params._packed_params"
+            sc_key  = f"{mod_name}.scale"
+            zp_key  = f"{mod_name}.zero_point"
+
+            if pp_key in module_keys:
+                packed = module_keys[pp_key]      # tuple (weight_tensor, bias_tensor)
+                w_q, b_f = packed                 # weight quantizado, bias float
+                mod.set_weight_bias(w_q, b_f)
+                if sc_key in module_keys:
+                    mod.scale      = float(module_keys[sc_key])
+                    mod.zero_point = int(module_keys[zp_key])
+                print(f"    [Linear] loaded: {mod_name}")
+
+    # 5. Carrega o state dict atualizado (activation scales já corrigidas)
+    #    strict=False porque chaves de módulos Conv/Linear são populadas acima
+    model_converted.load_state_dict(converted_state, strict=False)
+
+    return model_converted.eval()
 
 def load_any_model(path, is_quantized=False, num_classes=15, device='cpu'):
     model = build_model(num_classes)
 
     if path.endswith('.gz'):
         print(f"Loading sparse model from {path}...")
-        model = load_sparse(model, path)
+        model = load_sparse(model, path, is_quantized=is_quantized)
     else:
         state = torch.load(path, map_location='cpu', weights_only=False)
         if is_quantized:
@@ -191,6 +360,7 @@ def load_any_model(path, is_quantized=False, num_classes=15, device='cpu'):
                 model.load_state_dict(state, strict=False)
         else:
             print(f"Loading standard model from {path}...")
+            model = adapt_model_to_state_dict(model, state)
             model.load_state_dict(state)
 
     model = model.to(device)
