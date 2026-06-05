@@ -502,186 +502,73 @@ def _select_representative_models(
     return {n: parsed[n] for n in selected if n in parsed}
 
 
-def fig_per_class_delta(models: dict[str, dict], baseline: dict,
-                        out: Path, top_k: int = 20,
-                        top_k_models: int = 8):
-    """
-    Heatmap  classes × modelos  com colormap divergente (azul = melhora,
-    vermelho = piora).
-
-    Parâmetros
-    ----------
-    top_k        : quantas classes mostrar (as com maior |mean delta|)
-    top_k_models : máximo de modelos no heatmap; seleciona automaticamente
-                   os mais representativos quando há mais modelos disponíveis.
-                   Passe 0 para incluir todos.
-    """
-    base_cls = parse_per_class_report(baseline.get("per_class_report", ""))
-    if not base_cls:
+# ── figura 4: delta F1 por classe — gráfico de barras (piores perdas) ────────
+def fig_per_class_delta(targets: dict[str, dict], baseline: dict, out: Path,
+                        top_k: int = 10, **kwargs):
+    """Mostra apenas as classes onde a destilação/compressão mais perde (pior delta médio)."""
+    
+    if "per_class_report" not in baseline or not baseline["per_class_report"]:
         print("[aviso] per_class_report ausente no baseline — fig_per_class_delta ignorada.")
         return
 
-    all_parsed: dict[str, dict] = {}
-    for n, t in models.items():
+    base_by_class = parse_per_class_report(baseline["per_class_report"])
+    
+    parsed_t = {}
+    for n, t in targets.items():
         rep = t.get("per_class_report", "")
         if rep:
-            all_parsed[n] = parse_per_class_report(rep)
+            parsed_t[n] = parse_per_class_report(rep)
 
-    if not all_parsed:
+    if not parsed_t:
         print("[aviso] Nenhum per_class_report nos modelos — fig_per_class_delta ignorada.")
         return
 
-    # Seleciona modelos representativos
-    parsed = _select_representative_models(all_parsed, models, top_k_models)
-    n_omitted = len(all_parsed) - len(parsed)
+    # Filtra apenas as classes que existem no baseline e em todos os modelos
+    classes = [c for c in base_by_class if all(c in p for p in parsed_t.values())]
 
-    # Classes presentes em todos os modelos selecionados
-    classes = [c for c in base_cls if all(c in p for p in parsed.values())]
+    # delta = aluno − baseline (negativo = pior)
+    deltas = {n: {c: parsed_t[n][c]["f1"] - base_by_class[c]["f1"] for c in classes}
+              for n in parsed_t}
 
-    # Matriz de deltas: shape (n_classes, n_models)
-    model_names  = list(parsed.keys())
-    deltas_full  = {
-        n: {c: parsed[n][c]["f1"] - base_cls[c]["f1"] for c in classes}
-        for n in model_names
-    }
+    # ordenar por pior média entre alunos (mais negativo primeiro)
+    mean_delta = {c: np.mean([deltas[n][c] for n in deltas]) for c in classes}
+    classes_sorted = sorted(classes, key=lambda c: mean_delta[c])[:top_k]
 
-    # Seleciona top_k classes por |mean delta| — as mais impactadas
-    mean_abs = {c: np.mean([abs(deltas_full[n][c]) for n in model_names])
-                for c in classes}
-    classes_sort = sorted(classes, key=lambda c: mean_abs[c], reverse=True)[:top_k]
-    # Ordena de cima p/ baixo pelo mean delta (piores embaixo)
-    mean_signed  = {c: np.mean([deltas_full[n][c] for n in model_names])
-                    for c in classes_sort}
-    classes_sort = sorted(classes_sort, key=lambda c: mean_signed[c])
+    fig, ax = plt.subplots(figsize=(8.5, 4.5))
+    n_models = len(targets)
+    width = 0.8 / max(n_models, 1)
+    y = np.arange(len(classes_sorted))[::-1]
+    
+    # Combina as paletas para evitar o NameError e garantir cores suficientes
+    PALETTE = PALETTE_PRUNING + PALETTE_QUANT 
 
-    n_cls = len(classes_sort)
-    n_mod = len(model_names)
+    for i, (name, by) in enumerate(deltas.items()):
+        offset = (i - (n_models - 1) / 2) * width
+        vals = [by[c] for c in classes_sorted]
+        ax.barh(y + offset, vals, width, color=PALETTE[i % len(PALETTE)],
+                edgecolor="black", linewidth=0.3, label=name)
 
-    # Monta a matriz (linhas = classes, colunas = modelos)
-    matrix = np.array([
-        [deltas_full[name][cls] for name in model_names]
-        for cls in classes_sort
-    ])
-
-    # ── Dimensionamento ──────────────────────────────────────────────────────
-    cell_h  = max(0.40, min(0.75, 9.0 / n_cls))   # polegadas por linha
-    cell_w  = max(0.80, min(1.60, 10.0 / n_mod))  # polegadas por coluna
-    fig_h   = n_cls * cell_h + 2.5
-    fig_w   = n_mod * cell_w + 3.0                # espaço para colorbar
-
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
-
-    # ── Escala simétrica em torno do zero ────────────────────────────────────
-    abs_max = max(abs(matrix).max(), 1e-4)
-    vmax    = round(abs_max * 1.05, 3)   # pequena margem visual
-
-    im = ax.imshow(
-        matrix,
-        aspect="auto",
-        cmap="RdBu",          # vermelho=piora, branco=zero, azul=melhora
-        vmin=-vmax, vmax=vmax,
-        interpolation="nearest",
-    )
-
-    # ── Anotações de valor nas células ───────────────────────────────────────
-    # Omite se a célula for muito pequena (< 20 pt de altura ou largura)
-    fig.canvas.draw()
-    bbox   = ax.get_window_extent()
-    pt_h   = bbox.height / n_cls   # altura da célula em pontos display
-    pt_w   = bbox.width  / n_mod
-    show_ann = pt_h >= 16 and pt_w >= 36
-
-    if show_ann:
-        fs = max(5.5, min(8.0, pt_h * 0.38))
-        for row in range(n_cls):
-            for col in range(n_mod):
-                v = matrix[row, col]
-                # Cor do texto: branco em células escuras, preto em claras
-                brightness = abs(v) / vmax
-                txt_color  = "white" if brightness > 0.55 else "#222222"
-                ax.text(col, row, f"{v:+.3f}",
-                        ha="center", va="center",
-                        fontsize=fs, color=txt_color, fontweight="bold")
-
-    # ── Eixos ────────────────────────────────────────────────────────────────
-    ax.set_xticks(np.arange(n_mod))
-    ax.set_xticklabels(
-        [n.replace("_", "\n") for n in model_names],
-        fontsize=max(7.0, min(10.0, 80 / n_mod)),
-        rotation=0,
-        ha="center",
-    )
-    ax.set_yticks(np.arange(n_cls))
-    ax.set_yticklabels(
-        [c.replace("_", " ") for c in classes_sort],
-        fontsize=max(7.0, min(10.0, 80 / n_cls)),
-    )
-
-    # Linhas de grade entre células
-    ax.set_xticks(np.arange(n_mod + 1) - 0.5, minor=True)
-    ax.set_yticks(np.arange(n_cls + 1) - 0.5, minor=True)
-    ax.grid(which="minor", color="white", linewidth=1.2)
-    ax.tick_params(which="minor", length=0)
-
-    # Rótulos de categoria no topo (pruning / quantization / unknown)
-    cat_colors = {"baseline": PALETTE_BASELINE,
-                  "pruning": PALETTE_PRUNING[0],
-                  "quantization": PALETTE_QUANT[0],
-                  "unknown": "#8C8C8C"}
-    for col, name in enumerate(model_names):
-        cat = classify_model(name)
-        c   = cat_colors.get(cat, "#8C8C8C")
-        ax.add_patch(plt.Rectangle(
-            (col - 0.5, n_cls - 0.5), 1, 0.35,
-            color=c, clip_on=False, zorder=3,
-        ))
-
-    # Colorbar
-    cbar = fig.colorbar(im, ax=ax, shrink=0.6, pad=0.02, aspect=25)
-    cbar.set_label("Δ F1 (modelo − baseline)", fontsize=9)
-    cbar.ax.tick_params(labelsize=8)
-
-    # Título
-    title = f"Δ F1 por classe (top {n_cls} mais impactadas)"
-    if n_omitted:
-        title += f"\n{n_mod} de {n_mod + n_omitted} modelos — use --top-k-models para ajustar"
-    ax.set_title(title, pad=18 if n_omitted else 14, fontweight="bold", fontsize=11)
-
-    # Legenda de categoria (patches coloridos no topo de cada coluna)
-    legend_patches = [
-        mpatches.Patch(color=c, label=cat)
-        for cat, c in cat_colors.items()
-        if any(classify_model(n) == cat for n in model_names)
-    ]
-    ax.legend(
-        handles=legend_patches,
-        fontsize=8, loc="upper left",
-        bbox_to_anchor=(0.0, -0.06),
-        ncol=len(legend_patches),
-        frameon=False,
-        title="categoria",
-        title_fontsize=8,
-    )
-
+    ax.axvline(0, color="black", linewidth=0.7)
+    ax.set_yticks(y)
+    ax.set_yticklabels([c.replace("_", " ") for c in classes_sorted], fontsize=8)
+    ax.set_xlabel("Δ F1 (modelo − baseline)")
+    ax.set_title(f"Onde a compressão perde: top {top_k} classes com maior queda média")
+    ax.legend(fontsize=8, loc="center left", bbox_to_anchor=(1.01, 0.5),
+              frameon=False)
+    
     fig.tight_layout()
     fig.savefig(out / "per_class_delta.png")
     plt.close(fig)
-    if n_omitted:
-        print(f"[info] per_class_delta: {n_omitted} modelo(s) omitido(s) do heatmap "
-              f"(passe --top-k-models 0 para incluir todos)")
-
 
 # ── figura 5: fronteira qualidade × custo (Pareto) ───────────────────────────
 def fig_quality_vs_cost_pareto(models: dict[str, dict], baseline: dict,
                                out: Path, tolerance_pp: float = 1.0):
     """
     Gera 2 painéis (Tamanho em disco, Latência) vs Top-1 com fronteira de Pareto e
-    zona de gap aceitável. (Gráfico de MACs omitido para clareza em pruning não estruturado).
+    zona de gap aceitável. Ajustado para exibir variação minúscula de acurácia.
     """
-    # Alterado para 1 linha, 2 colunas. Largura reduzida proporcionalmente para 11.0
     fig, axes = plt.subplots(1, 2, figsize=(11.0, 5.0), sharey=False)
     
-    # Removido o item "macs" da lista de métricas
     metrics = [
         ("file_size_mb", "Tamanho em disco (MB)", False),
         ("latency", "Latência batch=1 (ms)", False)
@@ -689,22 +576,24 @@ def fig_quality_vs_cost_pareto(models: dict[str, dict], baseline: dict,
     
     b_top1 = baseline.get("top1", 0.0)
     
-    # Define os limites Y calculando o min/max de todas as top-1
     all_ys = [t.get("top1", 0.0) for t in models.values() if "top1" in t] + [b_top1]
-    ylo, yhi = _tight_ylim(all_ys, pad_frac=0.20)
-    tol_lo = max(b_top1 - tolerance_pp / 100.0, ylo)
+    
+    # [NOVO] Lógica para evitar "fundo todo verde" quando o modelo for perfeito demais
+    y_min_data = min(all_ys)
+    tol_target = b_top1 - tolerance_pp / 100.0
+    # Garante que o fundo do eixo Y desça um pouco abaixo do pior dado para vermos o limite verde,
+    # mas não afunda demais se a tolerance for gigante (para não espremer os dados no topo).
+    visible_tol = max(tol_target, y_min_data - 0.0015) 
+    
+    ylo, yhi = _tight_ylim(all_ys + [visible_tol], pad_frac=0.20)
+    tol_lo = max(tol_target, ylo)
     
     pruning_i, quant_i = _build_idx(models)
     
     for ax, (metric_key, xlabel, is_log) in zip(axes, metrics):
         xs, ys, names, colors = [], [], [], []
         
-        # 1. Coleta do valor do baseline
-        b_x = None
-        if metric_key == "file_size_mb":
-            b_x = baseline.get("file_size_mb", 0)
-        elif metric_key == "latency":
-            b_x = baseline.get("latencies", {}).get("1", {}).get("mean_ms", None)
+        b_x = baseline.get("file_size_mb", 0) if metric_key == "file_size_mb" else baseline.get("latencies", {}).get("1", {}).get("mean_ms", None)
         
         if b_x is not None and b_x > 0:
             xs.append(b_x)
@@ -712,14 +601,8 @@ def fig_quality_vs_cost_pareto(models: dict[str, dict], baseline: dict,
             names.append("baseline")
             colors.append("black")
             
-        # 2. Coleta dos valores de todos os modelos
         for name, t in models.items():
-            x_val = None
-            if metric_key == "file_size_mb":
-                x_val = t.get("file_size_mb", 0)
-            elif metric_key == "latency":
-                x_val = t.get("latencies", {}).get("1", {}).get("mean_ms", None)
-            
+            x_val = t.get("file_size_mb", 0) if metric_key == "file_size_mb" else t.get("latencies", {}).get("1", {}).get("mean_ms", None)
             if x_val is not None and x_val > 0:
                 xs.append(x_val)
                 ys.append(t.get("top1", 0))
@@ -730,11 +613,9 @@ def fig_quality_vs_cost_pareto(models: dict[str, dict], baseline: dict,
         if not xs:
             continue
             
-        # 3. Desenhar a zona verde (gap aceitável)
         ax.axhspan(tol_lo, yhi, color="#2CA02C", alpha=0.08, 
                    label=f"gap ≤ {tolerance_pp:.1f} pp")
                    
-        # 4. Calcular e desenhar Fronteira de Pareto (Menor Custo [X], Maior Qualidade [Y])
         pts = sorted(zip(xs, ys, names), key=lambda p: (p[0], -p[1]))
         front_x, front_y = [], []
         best_y = -np.inf
@@ -749,7 +630,6 @@ def fig_quality_vs_cost_pareto(models: dict[str, dict], baseline: dict,
             ax.plot(front_x, front_y, color="#777777", lw=1.2, zorder=2, 
                     label="fronteira de Pareto")
 
-        # 5. Plotar os marcadores (scatter) e textos
         for i, (x, y, name, c) in enumerate(zip(xs, ys, names, colors)):
             if name == "baseline":
                 ax.scatter(x, y, s=300, c="black", marker="*", zorder=5, label="baseline")
@@ -761,7 +641,6 @@ def fig_quality_vs_cost_pareto(models: dict[str, dict], baseline: dict,
                 ax.annotate(name, (x, y), xytext=(6, dy), textcoords="offset points", 
                             fontsize=8, zorder=6)
                 
-        # 6. Configurações dos eixos e legendas
         ax.set_ylim(ylo, yhi)
         if is_log:
             ax.set_xscale("log")
@@ -769,7 +648,6 @@ def fig_quality_vs_cost_pareto(models: dict[str, dict], baseline: dict,
         ax.set_xlabel(xlabel, fontsize=11)
         ax.set_ylabel("Top-1", fontsize=11)
         
-        # Filtra rótulos duplicados na legenda
         handles, labels = ax.get_legend_handles_labels()
         by_label = dict(zip(labels, handles))
         ax.legend(by_label.values(), by_label.keys(), loc="lower right", fontsize=9, 
@@ -945,6 +823,89 @@ def write_summary_csv(models: dict[str, dict], baseline: dict, out: Path):
         w.writeheader()
         w.writerows(rows)
 
+def fig_retention_and_cost(models: dict[str, dict], baseline: dict, out: Path):
+    """
+    Gera subplots de barras horizontais (Trellis) comparando métricas.
+    Ajustado para mostrar casas decimais dinâmicas, revelando detalhes > 99.9%.
+    """
+    if not models:
+        return
+
+    metrics = [
+        ("Top-1", "top1", "quality"),
+        ("F1 macro", "f1_macro", "quality"),
+        ("Tamanho", "file_size_mb", "cost"),
+        ("MACs", "macs", "cost"),
+        ("Latência b=1", "lat_1", "cost"),
+        ("Latência b=32", "lat_32", "cost"),
+    ]
+
+    def get_val(data_dict, key):
+        if key == "lat_1":
+            return data_dict.get("latencies", {}).get("1", {}).get("mean_ms", None)
+        if key == "lat_32":
+            return data_dict.get("latencies", {}).get("32", {}).get("mean_ms", None)
+        return data_dict.get(key, None)
+
+    b_vals = {key: get_val(baseline, key) for _, key, _ in metrics}
+
+    n_models = len(models)
+    fig, axes = plt.subplots(1, n_models, figsize=(3.5 * n_models, 4.5), sharey=True)
+    if n_models == 1:
+        axes = [axes]
+
+    color_qual = "#2E7D32" 
+    color_cost = "#B72A3B"
+
+    y_pos = np.arange(len(metrics))
+
+    for ax, (name, t) in zip(axes, models.items()):
+        m_vals = [get_val(t, key) for _, key, _ in metrics]
+
+        pcts = []
+        for (m_label, m_key, m_type), m_val in zip(metrics, m_vals):
+            b_val = b_vals[m_key]
+            if b_val and m_val is not None:
+                pcts.append((m_val / b_val) * 100.0)
+            else:
+                pcts.append(0.0)
+
+        colors = [color_qual if mtype == "quality" else color_cost for _, _, mtype in metrics]
+        bars = ax.barh(y_pos, pcts, color=colors, edgecolor="black", linewidth=0.7, alpha=0.9)
+
+        ax.set_title(name, fontsize=11, pad=10)
+        ax.set_xlabel("% do baseline", fontsize=10)
+        ax.axvline(100, color="black", linestyle="--", linewidth=0.9, alpha=0.7, zorder=0)
+
+        max_pct = max(pcts) if pcts else 100
+        x_limit = max(max_pct * 1.35, 120)
+        ax.set_xlim(0, x_limit)
+
+        # [NOVO] Aplica 3 casas decimais para métricas de qualidade e 1 para custo
+        for bar, (_, _, mtype) in zip(bars, metrics):
+            width = bar.get_width()
+            if width > 0:
+                fmt_str = f"{width:.3f}%" if mtype == "quality" else f"{width:.1f}%"
+                ax.text(width + (x_limit * 0.02), bar.get_y() + bar.get_height()/2, 
+                        fmt_str, 
+                        va='center', ha='left', fontsize=9)
+
+        ax.grid(axis='x', linestyle=':', alpha=0.4, zorder=0)
+        ax.grid(axis='y', linestyle=':', alpha=0.4, zorder=0)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        if ax == axes[0]:
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels([label for label, _, _ in metrics], fontsize=11)
+        else:
+            ax.tick_params(axis='y', length=0)
+
+    plt.gca().invert_yaxis()
+    fig.suptitle("Retenção de qualidade e redução de custo (relativo ao baseline)", fontsize=13, y=1.05)
+    plt.subplots_adjust(wspace=0.15)
+    fig.savefig(out / "retention_vs_cost.png", bbox_inches="tight")
+    plt.close(fig)
 
 # ── orquestração ──────────────────────────────────────────────────────────────
 def main():
@@ -1011,8 +972,9 @@ def main():
     # fig_sparsity_vs_accuracy(targets, baseline, args.out, args.tolerance_pp)
     # fig_size_vs_accuracy    (targets, baseline, args.out, args.tolerance_pp)
     fig_latency_comparison  (targets, baseline, args.out)
-    fig_per_class_delta     (targets, baseline, args.out, args.top_k_classes, args.top_k_models)
+    fig_per_class_delta       (targets, baseline, args.out, args.top_k_classes)
     fig_quality_vs_cost_pareto(targets, baseline, args.out, args.tolerance_pp)
+    fig_retention_and_cost  (targets, baseline, args.out)
     write_summary_csv       (targets, baseline, args.out)
 
     print(f"\n[ok] {len(targets)} modelo(s) plotado(s) → {args.out.resolve()}")

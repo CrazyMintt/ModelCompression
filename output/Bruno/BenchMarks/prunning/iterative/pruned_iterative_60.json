@@ -1,7 +1,7 @@
 {
   "target": {
     "arch": "resnet18",
-    "weights": "/home/bruno/Downloads/ModelCompressionResearchCopia/pruned_iterative_60.pth.gz",
+    "weights": "/home/bruno/Downloads/ModelCompressionResearchCopia/output/Bruno/Modelos/prunning/iterative/pruned_iterative_60.pth.gz",
     "params_total": 11174607,
     "params_trainable": 0,
     "buffers": 9620,
@@ -13,26 +13,26 @@
     "int8_size_mb": 10.656935691833496,
     "latencies": {
       "1": {
-        "mean_ms": 21.764861738483887,
-        "std_ms": 3.2856597410286903,
-        "p50_ms": 21.241467497020494,
-        "p95_ms": 28.03404650403536,
-        "p99_ms": 29.524311491986733,
-        "throughput_imgs": 45.94561693134187
+        "mean_ms": 2.274918719995185,
+        "std_ms": 0.33014924112312494,
+        "p50_ms": 2.1533980000185693,
+        "p95_ms": 2.8499245000375595,
+        "p99_ms": 3.0678937899028815,
+        "throughput_imgs": 439.5761445059965
       },
       "32": {
-        "mean_ms": 708.828532199841,
-        "std_ms": 49.944711673108145,
-        "p50_ms": 709.2322859971318,
-        "p95_ms": 782.2617217992956,
-        "p99_ms": 829.2803877468394,
-        "throughput_imgs": 45.14490958862558
+        "mean_ms": 20.331811579994792,
+        "std_ms": 0.6563884502377151,
+        "p50_ms": 20.246534499960944,
+        "p95_ms": 21.34799199994859,
+        "p99_ms": 21.956217270046636,
+        "throughput_imgs": 1573.8882821187444
       }
     },
-    "top1": 0.9677002583979328,
-    "f1_macro": 0.9625713786806772,
-    "f1_weighted": 0.9676169266300688,
-    "per_class_report": "                                             precision    recall  f1-score   support\n\n              Pepper__bell___Bacterial_spot     0.9933    1.0000    0.9967       149\n                     Pepper__bell___healthy     0.9911    1.0000    0.9955       222\n                      Potato___Early_blight     0.9801    0.9867    0.9834       150\n                       Potato___Late_blight     0.9932    0.9800    0.9866       150\n                           Potato___healthy     0.9545    0.9130    0.9333        23\n                      Tomato_Bacterial_spot     0.9968    0.9812    0.9889       319\n                        Tomato_Early_blight     0.9517    0.9200    0.9356       150\n                         Tomato_Late_blight     0.9647    0.9545    0.9596       286\n                           Tomato_Leaf_Mold     0.9925    0.9301    0.9603       143\n                  Tomato_Septoria_leaf_spot     0.9529    0.9887    0.9705       266\nTomato_Spider_mites_Two_spotted_spider_mite     0.9560    0.9522    0.9541       251\n                        Tomato__Target_Spot     0.9674    0.8436    0.9013       211\n      Tomato__Tomato_YellowLeaf__Curl_Virus     0.9979    0.9938    0.9958       481\n                Tomato__Tomato_mosaic_virus     0.9032    1.0000    0.9492        56\n                             Tomato_healthy     0.8686    0.9958    0.9279       239\n\n                                   accuracy                         0.9677      3096\n                                  macro avg     0.9643    0.9626    0.9626      3096\n                               weighted avg     0.9691    0.9677    0.9676      3096\n",
+    "top1": 0.9680232558139535,
+    "f1_macro": 0.9629403007463281,
+    "f1_weighted": 0.9679437945045214,
+    "per_class_report": "                                             precision    recall  f1-score   support\n\n              Pepper__bell___Bacterial_spot     0.9933    1.0000    0.9967       149\n                     Pepper__bell___healthy     0.9911    1.0000    0.9955       222\n                      Potato___Early_blight     0.9801    0.9867    0.9834       150\n                       Potato___Late_blight     0.9932    0.9800    0.9866       150\n                           Potato___healthy     0.9545    0.9130    0.9333        23\n                      Tomato_Bacterial_spot     0.9968    0.9812    0.9889       319\n                        Tomato_Early_blight     0.9517    0.9200    0.9356       150\n                         Tomato_Late_blight     0.9647    0.9545    0.9596       286\n                           Tomato_Leaf_Mold     0.9926    0.9371    0.9640       143\n                  Tomato_Septoria_leaf_spot     0.9564    0.9887    0.9723       266\nTomato_Spider_mites_Two_spotted_spider_mite     0.9560    0.9522    0.9541       251\n                        Tomato__Target_Spot     0.9674    0.8436    0.9013       211\n      Tomato__Tomato_YellowLeaf__Curl_Virus     0.9979    0.9938    0.9958       481\n                Tomato__Tomato_mosaic_virus     0.9032    1.0000    0.9492        56\n                             Tomato_healthy     0.8686    0.9958    0.9279       239\n\n                                   accuracy                         0.9680      3096\n                                  macro avg     0.9645    0.9631    0.9629      3096\n                               weighted avg     0.9694    0.9680    0.9679      3096\n",
     "nonzero_params": 715188
   },
   "baseline": {
@@ -49,20 +49,20 @@
     "int8_size_mb": 10.656935691833496,
     "latencies": {
       "1": {
-        "mean_ms": 17.255374578817282,
-        "std_ms": 0.8794024646661407,
-        "p50_ms": 17.252083998755552,
-        "p95_ms": 18.917958451493178,
-        "p99_ms": 19.333486893301597,
-        "throughput_imgs": 57.952958101970225
+        "mean_ms": 1.7898311200178796,
+        "std_ms": 0.14209769754408103,
+        "p50_ms": 1.7576970001300651,
+        "p95_ms": 2.0674759000939957,
+        "p99_ms": 2.1389054800079066,
+        "throughput_imgs": 558.7119303132971
       },
       "32": {
-        "mean_ms": 541.672053799557,
-        "std_ms": 46.362684340938785,
-        "p50_ms": 545.6664339944837,
-        "p95_ms": 610.4764188472473,
-        "p99_ms": 651.8980583371011,
-        "throughput_imgs": 59.07633553463963
+        "mean_ms": 20.029678879996027,
+        "std_ms": 0.3391908123103899,
+        "p50_ms": 20.03830699993614,
+        "p95_ms": 20.51679474999446,
+        "p99_ms": 20.615022589988712,
+        "throughput_imgs": 1597.6292077232918
       }
     },
     "top1": 0.9958010335917312,
