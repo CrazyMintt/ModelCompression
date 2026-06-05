@@ -18,10 +18,17 @@ Examples
 Evaluate the teacher:
     python evaluate_model.py --weights output/best_model.pth --arch resnet18
 
-Evaluate the distilled student and compare against the teacher as baseline:
+Evaluate a student and compare against a live baseline checkpoint:
     python evaluate_model.py \
         --weights output/student_distilled.pth --arch mobilenet_v3_small \
         --baseline-weights output/best_model.pth --baseline-arch resnet18
+
+Evaluate a student and compare against a previously saved baseline JSON
+(skips re-evaluating the baseline — metrics are frozen):
+    python evaluate_model.py \
+        --weights output/student_distilled.pth --arch mobilenet_v3_small \
+        --baseline-weights output/Bruno/BenchMarks/Base/Baseline.json \
+        --baseline-arch resnet18
 """
 
 import argparse
@@ -44,8 +51,6 @@ from distill import FilteredImageFolder
 
 
 # ── Architecture registry ─────────────────────────────────────────────────────
-# Each builder must produce a model whose state_dict shape exactly matches the
-# checkpoint produced by the corresponding training script.
 def _build_resnet18(num_classes):
     m = models.resnet18(weights=None)
     in_f = m.fc.in_features
@@ -80,7 +85,6 @@ def _build_mnasnet0_5(num_classes):
 
 
 def _build_squeezenet1_1(num_classes):
-    # SqueezeNet uses a 1×1 Conv as its final classifier.
     m = models.squeezenet1_1(weights=None)
     m.classifier[1] = nn.Conv2d(512, num_classes, kernel_size=1)
     m.num_classes = num_classes
@@ -110,6 +114,37 @@ def load_model(arch, weights_path, num_classes, device):
     return model
 
 
+def load_baseline_from_json(path):
+    """
+    Loads frozen baseline metrics from a previously saved JSON report.
+    Accepts files saved by save_report() — looks for keys 'target' or 'baseline'
+    at the top level, or falls back to the root dict.
+    Returns a dict compatible with print_comparison() (no 'preds'/'labels').
+    """
+    print(f"\nLoading frozen baseline from {path} ...")
+    with open(path, "r") as f:
+        data = json.load(f)
+
+    if "baseline" in data and isinstance(data["baseline"], dict):
+        result = data["baseline"]
+    elif "target" in data and isinstance(data["target"], dict):
+        result = data["target"]
+    else:
+        result = data
+
+    # latencies keys may be ints when saved from an older version — normalise
+    if "latencies" in result:
+        result["latencies"] = {
+            int(k) if str(k).isdigit() else k: v
+            for k, v in result["latencies"].items()
+        }
+
+    print(f"  arch:     {result.get('arch', 'unknown')}")
+    print(f"  weights:  {result.get('weights', 'unknown')}")
+    print(f"  top-1:    {result.get('top1', float('nan')):.4f}")
+    return result
+
+
 # ── Capacity & storage ────────────────────────────────────────────────────────
 def count_params(model):
     total     = sum(p.numel() for p in model.parameters())
@@ -127,13 +162,6 @@ def theoretical_size_mb(num_params, bytes_per_param):
 
 
 # ── MACs / FLOPs ──────────────────────────────────────────────────────────────
-# Counts multiply-accumulates for the two layer types that dominate CNN cost
-# (Conv2d, Linear). Activations, BN, pooling are ignored — they're <5 % of the
-# total in standard CNNs and following common research convention.
-#   Conv2d MACs = (in_channels / groups) * k_h * k_w * out_channels * H_out * W_out
-#   Linear MACs = in_features * out_features
-# FLOPs ≈ 2 × MACs (multiply + accumulate counted as 2 ops; some papers report
-# 1 op — always state your convention).
 def compute_macs(model, input_shape, device):
     macs = [0]
 
@@ -163,10 +191,6 @@ def compute_macs(model, input_shape, device):
 
 
 # ── Latency ───────────────────────────────────────────────────────────────────
-# Measured by forcing a CPU read of the output (`float(y[0, 0])`) which acts as
-# a sync point on CUDA, DirectML, and CPU alike. Warmup runs are critical:
-# the first few forwards include kernel compilation / cache priming and are
-# 5–50× slower than steady-state, which would skew the mean.
 def benchmark_latency(model, device, batch_size, n_runs=50, warmup=10):
     model.eval()
     x = torch.randn(batch_size, 3, IMG_SIZE, IMG_SIZE, device=device)
@@ -276,11 +300,14 @@ def print_report(r):
     print(f"  Weighted F1:             {r['f1_weighted']:>13.4f}")
 
 
-def print_comparison(target, baseline):
+def print_comparison(target, baseline, frozen=False):
     """target = the smaller / compressed model;  baseline = the reference."""
-    _section("Compression  (target vs baseline)", width=72)
+    label = "frozen baseline" if frozen else "baseline"
+    _section(f"Compression  (target vs {label})", width=72)
     print(f"  Target:    {target['arch']}  ({target['weights']})")
-    print(f"  Baseline:  {baseline['arch']}  ({baseline['weights']})")
+    print(f"  Baseline:  {baseline.get('arch', 'unknown')}  ({baseline.get('weights', 'unknown')})")
+    if frozen:
+        print(f"  (baseline metrics loaded from JSON — no re-evaluation)")
 
     pr = baseline["params_total"] / target["params_total"]
     mr = baseline["macs"]         / target["macs"]
@@ -303,22 +330,22 @@ def print_comparison(target, baseline):
     print(f"  Δ Top-1 accuracy:         {acc_delta:>+7.2f} pp")
     print(f"  Δ Macro F1:               {f1_delta:>+7.2f} pp")
 
-    if target["preds"].shape == baseline["preds"].shape:
-        agree = float((target["preds"] == baseline["preds"]).mean()) * 100
-        print(f"  Prediction agreement:     {agree:>7.2f}%   "
-              f"(how often both models pick the same class)")
+    # Agreement requires preds arrays — not available when baseline is frozen
+    if not frozen and "preds" in target and "preds" in baseline:
+        if target["preds"].shape == baseline["preds"].shape:
+            agree = float((target["preds"] == baseline["preds"]).mean()) * 100
+            print(f"  Prediction agreement:     {agree:>7.2f}%   "
+                  f"(how often both models pick the same class)")
 
     if pr > 1 and acc_delta < 0:
-        # Pareto-style summary line for compression studies.
-        eff = -acc_delta / pr  # accuracy lost per × of compression
+        eff = -acc_delta / pr
         print(f"  Accuracy lost per ×:      {eff:>+7.3f} pp/×    (lower is better)")
 
 
 # ── Persisting ────────────────────────────────────────────────────────────────
 def _strip_for_json(r):
     """Drop large arrays before JSON dumps."""
-    out = {k: v for k, v in r.items() if k not in ("preds", "labels")}
-    return out
+    return {k: v for k, v in r.items() if k not in ("preds", "labels")}
 
 
 def save_report(path, target, baseline=None):
@@ -339,9 +366,9 @@ def parse_args():
     p.add_argument("--arch", required=True, choices=list(ARCHS),
                    help="Architecture name (must match the checkpoint).")
     p.add_argument("--baseline-weights", default=None,
-                   help="Optional reference checkpoint to compare against.")
+                   help="Reference checkpoint (.pth) or frozen JSON report to compare against.")
     p.add_argument("--baseline-arch", default=None, choices=list(ARCHS),
-                   help="Architecture for the baseline checkpoint.")
+                   help="Architecture for the baseline checkpoint (ignored when a JSON is passed).")
     p.add_argument("--batch-sizes", type=int, nargs="+", default=[1, 32],
                    help="Batch sizes for latency benchmarking.")
     p.add_argument("--runs", type=int, default=50,
@@ -353,8 +380,16 @@ def parse_args():
 
 def main():
     args = parse_args()
-    if (args.baseline_weights is None) ^ (args.baseline_arch is None):
-        raise SystemExit("--baseline-weights and --baseline-arch must be used together.")
+
+    # Detect whether baseline is a JSON file or a .pth checkpoint
+    baseline_is_json = (
+        args.baseline_weights is not None
+        and args.baseline_weights.endswith(".json")
+    )
+
+    if args.baseline_weights and not baseline_is_json:
+        if args.baseline_arch is None:
+            raise SystemExit("--baseline-arch is required when --baseline-weights is a .pth file.")
 
     device, _, label = _select_device()
     print(f"Device: {label}")
@@ -364,7 +399,6 @@ def main():
     num_classes  = len(classes)
     print(f"Dataset: {len(full_dataset):,} images, {num_classes} classes")
 
-    # Same test split as train.py / distill.py (deterministic via SEED).
     sample_labels = np.array([s[1] for s in full_dataset.samples])
     sss = StratifiedShuffleSplit(n_splits=1, test_size=0.15, random_state=SEED)
     _, test_idx = next(sss.split(np.zeros(len(sample_labels)), sample_labels))
@@ -378,12 +412,17 @@ def main():
     print("\n[Per-class report]\n" + target["per_class_report"])
 
     baseline = None
-    if args.baseline_weights:
+    if baseline_is_json:
+        # ── Frozen baseline — load from JSON, skip model evaluation ──────────
+        baseline = load_baseline_from_json(args.baseline_weights)
+        print_comparison(target, baseline, frozen=True)
+    elif args.baseline_weights:
+        # ── Live baseline — original behaviour ────────────────────────────────
         baseline = evaluate(args.baseline_arch, args.baseline_weights,
                             num_classes, classes, device,
                             test_loader, args.batch_sizes, args.runs)
         print_report(baseline)
-        print_comparison(target, baseline)
+        print_comparison(target, baseline, frozen=False)
 
     if args.save_json:
         save_report(args.save_json, target, baseline)
