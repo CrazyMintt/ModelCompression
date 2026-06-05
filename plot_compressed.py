@@ -722,7 +722,7 @@ def write_summary_csv(models: dict[str, dict], baseline: dict, out: Path):
         # ── latência (batch=1) ─────────────────────────────────────────────
         "latency_b1_ms", "latency_b1_p95_ms", "latency_b1_std_ms",
         # ── throughput ─────────────────────────────────────────────────────
-        "throughput_b1", "throughput_b32",
+        "throughput_b1", "latency_b32_ms",
         # ── qualidade global ───────────────────────────────────────────────
         "top1", "f1_macro",
         # ── gaps vs baseline ───────────────────────────────────────────────
@@ -754,7 +754,7 @@ def write_summary_csv(models: dict[str, dict], baseline: dict, out: Path):
         lat_b1_p95  = t.get("latencies", {}).get("1", {}).get("p95_ms", 0.0)
         lat_b1_std  = t.get("latencies", {}).get("1", {}).get("std_ms", 0.0)
         thr_b1      = t.get("latencies", {}).get("1", {}).get("throughput_imgs", 0.0)
-        thr_b32     = t.get("latencies", {}).get("32", {}).get("throughput_imgs", 0.0)
+        lat_b32_mean = t.get("latencies", {}).get("32", {}).get("mean_ms", 0.0)
 
         t_top1     = t.get("top1", 0.0)
         t_f1_macro = t.get("f1_macro", 0.0)
@@ -803,7 +803,7 @@ def write_summary_csv(models: dict[str, dict], baseline: dict, out: Path):
             "latency_b1_p95_ms":  round(lat_b1_p95, 3),
             "latency_b1_std_ms":  round(lat_b1_std, 3),
             "throughput_b1":      round(thr_b1, 1),
-            "throughput_b32":     round(thr_b32, 1),
+            "latency_b32_ms":     round(lat_b32_mean, 3),
             "top1":               round(t_top1, 4),
             "f1_macro":           round(t_f1_macro, 4),
             "gap_top1_pp":        gap_top1_pp,

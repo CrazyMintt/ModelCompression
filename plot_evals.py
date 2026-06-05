@@ -251,7 +251,7 @@ def fig_per_class_delta(targets: dict[str, dict], baseline: dict, out: Path,
 # ── tabela mestre ─────────────────────────────────────────────────────────────
 def write_summary_csv(targets: dict[str, dict], baseline: dict, out: Path):
     fields = ["model", "params_M", "macs_M", "fp32_MB",
-              "latency_b1_ms", "throughput_b32",
+              "latency_b1_ms", "latency_b32_ms",
               "top1", "f1_macro", "gap_top1_pp", "compression_x"]
     rows = []
     for name in [baseline.get("arch", "baseline")] + list(targets.keys()):
@@ -262,7 +262,7 @@ def write_summary_csv(targets: dict[str, dict], baseline: dict, out: Path):
             "macs_M":        round(t["macs"]         / 1e6, 2),
             "fp32_MB":       round(t["fp32_size_mb"], 3),
             "latency_b1_ms": round(t["latencies"]["1"]["mean_ms"], 3),
-            "throughput_b32": round(t["latencies"]["32"]["throughput_imgs"], 1),
+            "latency_b32_ms": round(t["latencies"]["32"]["mean_ms"], 3),
             "top1":          round(t["top1"], 4),
             "f1_macro":      round(t["f1_macro"], 4),
             "gap_top1_pp":   round(100 * (baseline["top1"] - t["top1"]), 3),
