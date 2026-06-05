@@ -1,4 +1,4 @@
 model,category,params_total,nonzero_params,sparsity_pct,macs_M,fp32_MB,fp16_MB,int8_MB,file_MB,latency_b1_ms,latency_b1_p95_ms,latency_b1_std_ms,throughput_b1,throughput_b32,top1,f1_macro,gap_top1_pp,f1_macro_gap_pp,f1_min,f1_worst_class,f1_gap_macro,compression_size_x,compression_params_x,speedup_b1,param_efficiency,accuracy_cost_ratio
-resnet18,unknown,11174607,11174607,0.0,1813.57,42.628,21.314,10.657,42.117,1.747,1.887,0.067,572.3,1712.0,0.9958,0.996,0.0,0.0,0.98,Tomato_Early_blight,0.02,1.0,1.0,1.0,0.0891,0.0
-pruned_structured_30,pruning,7866639,7866639,0.0,1302.38,30.009,15.004,7.502,29.21,1.914,2.261,0.161,522.5,1688.7,0.2171,0.1546,77.875,84.144,0.0,Potato___Early_blight,0.6982,1.44,1.42,0.91,0.0276,54.0799
-pruned_structured_40,pruning,6768207,6768207,0.0,1136.53,25.819,12.909,6.455,25.149,1.736,1.824,0.047,576.2,1840.6,0.1072,0.0335,88.857,96.253,0.0,Pepper__bell___Bacterial_spot,0.3123,1.67,1.65,1.01,0.0158,53.2078
+resnet18,unknown,11174607,11174607,0.0,1813.57,42.628,21.314,10.657,42.117,1.823,2.223,0.204,548.7,1611.1,0.9958,0.996,0.0,0.0,0.98,Tomato_Early_blight,0.02,1.0,1.0,1.0,0.0891,0.0
+pruned_structured_30,pruning,7866639,7866639,0.0,1302.38,30.009,15.004,7.502,29.21,1.889,2.304,0.148,529.5,1777.5,0.2171,0.1546,77.875,84.144,0.0,Potato___Early_blight,0.6982,1.44,1.42,0.97,0.0276,54.0799
+pruned_structured_40,pruning,6768207,6768207,0.0,1136.53,25.819,12.909,6.455,25.149,1.89,2.456,0.305,529.2,1774.4,0.1072,0.0335,88.857,96.253,0.0,Pepper__bell___Bacterial_spot,0.3123,1.67,1.65,0.96,0.0158,53.2078
